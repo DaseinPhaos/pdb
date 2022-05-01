@@ -6,6 +6,7 @@ import "core:strings"
 import "core:log"
 
 main ::proc() {
+    //odin run test.odin -out:build\test.exe -- .\build\test.pdb
     //pdb_path := "H:/projects/pdbReader/build/test.pdb"
     //pdb_path := "G:/repos/PDBDumpWV/PDBDumpWV/bin/Debug/PDBDumpWV.pdb"
     pdb_path, _ := strings.replace_all(os.args[1], "\\", "/")
@@ -32,34 +33,20 @@ main ::proc() {
     streamDir := read_stream_dir(&sb, file_content)
     //log.debugf("streamDir: %v\n", streamDir)
 
-    pdbStreamReader := BlocksReader{
-        data = file_content, blockSize = cast(uint)sb.blockSize, indices = streamDir.streamBlocks[PdbStream_Index], size = cast(uint)streamDir.streamSizes[PdbStream_Index],
+    pdbStreamReader := get_stream_reader(&streamDir, PdbStream_Index, file_content, sb.blockSize)
+    pdbHeader, nameMap, pdbFeatures := parse_pdb_stream(&pdbStreamReader)
+    for ns in nameMap.names {
+        log.debug(ns)
     }
-    // headerVersion := PdbStreamVersion(read_u32_from_blocks(&pdbStreamReader))
-    //log.debugf("pdbStreamReaderSize: %v", pdbStreamReader.size)
-    pdbHeader := readv_from_blocks(&pdbStreamReader, PdbStreamHeader)
-    if pdbHeader.version != .VC70 {
-        log.warnf("unrecoginized pdbStreamVersion: %v", pdbHeader.version)
+    for feature in pdbFeatures {
+        log.debug(feature)
     }
+    
+    tpiStreamReader := get_stream_reader(&streamDir, TpiStream_Index, file_content, sb.blockSize)
+    tpiStream := parse_tpi_stream(&tpiStreamReader)
+    fmt.println(tpiStream)
 
-    nameStringLen := readv_from_blocks(&pdbStreamReader, u32le)
-    log.debugf("nameStringLen: %v", nameStringLen)
-    nameString := make([]byte, nameStringLen)
-    for i in 0..<nameStringLen {
-        nameString[i] = readv_from_blocks(&pdbStreamReader, byte)
-    }
-    //fmt.println(strings.string_from_ptr(&nameString[0], cast(int)nameStringLen))
-
-    snamesMap := read_hash_table(&pdbStreamReader, u32le)
-    //log.debugf("pdbHashTable: %v\n", pdbHashTable)
-    for i in 0..< snamesMap.capacity {
-        kv, ok := get_kv_at(&snamesMap, i)
-        if ok {
-            //fmt.printf("k: %v, v: %v, vstr: %v\n", kv.key, kv.value, ))
-            nameStr : string
-            assert(kv.key < nameStringLen, "invalid name key")
-            nameStr = strings.string_from_nul_terminated_ptr(&nameString[kv.key], len(nameString)-int(kv.key))
-            fmt.printf("bucket#%v [%v:%v], name: %v\n", i, kv.key, kv.value, nameStr)
-        }
-    }
+    ipiStreamReader := get_stream_reader(&streamDir, IpiStream_Index, file_content, sb.blockSize)
+    ipiStream := parse_tpi_stream(&ipiStreamReader)
+    fmt.println(ipiStream)
 }

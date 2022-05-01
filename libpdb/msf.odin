@@ -4,6 +4,8 @@ import "core:fmt"
 import "core:strings"
 import "core:mem"
 import "core:log"
+import "core:intrinsics"
+import "core:runtime"
 
 // SuperBlock|FPM1|FPM2|DataBlocks[BlockSize-3]|FPM1|FPM2|DataBlocks[BlockSize-3])+
 
@@ -23,6 +25,12 @@ StreamDirectory :: struct {
     numStreams : u32le,
     streamSizes : []u32le, // len == numStreams. size of each stream in bytes
     streamBlocks : [][]u32le, // blockIndices = StreamBlocks[streamIdx]. len(blockIndices) == ceil(streamSizes[streamIdx]/superBlock.blockSize)
+}
+
+get_stream_reader :: #force_inline proc(using this: ^StreamDirectory, streamIdx : uint, data: []byte, blockSize: u32le) -> BlocksReader {
+    return BlocksReader{
+        data = data, blockSize = cast(uint)blockSize, indices = streamBlocks[streamIdx], size = cast(uint)streamSizes[streamIdx],
+    }
 }
 
 read_superblock :: proc(using this : ^SuperBlock, data: []byte) -> (success: bool) {
@@ -88,7 +96,19 @@ get_byte_from_blocks :: proc(using this: ^BlocksReader, at: uint) -> byte {
     return data[bi*blockSize + iib]
 }
 
+@private
+_can_readv :: proc ($T: typeid) -> bool {
+    if intrinsics.type_is_struct(T) {
+        ti := cast(^runtime.Type_Info_Struct)type_info_of(T)
+        return ti.is_packed
+    }
+    return true
+}
+
 readv_from_blocks :: proc(using this: ^BlocksReader, $T: typeid) -> (ret: T) {
+        when ODIN_DEBUG {
+            assert(_can_readv(T)) // I wish this could've been constexpred
+        }    
         tsize := cast(uint)size_of(T)
         assert(size == 0 || offset + tsize <= size, "block overflow")
         bii := offset /blockSize
