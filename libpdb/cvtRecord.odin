@@ -475,7 +475,7 @@ read_cvtlStruct :: proc(this: ^BlocksReader) -> (ret: CvtlStruct) {
     ret.name = read_length_prefixed_name(this)
     return
 }
-//CvtlStruct_Prop :: distinct u16le
+
 CvtlStruct_Prop :: enum u16le {
     None = 0,
     Packed = 1 << 0,
@@ -489,14 +489,16 @@ CvtlStruct_Prop :: enum u16le {
     Scoped = 1 << 8,
     HasUniqueueName = 1 << 9, 
     Sealed = 1 << 10,
-    // _HfaB0, 11
-    // _HfaB1, 12
+    HFA_Float = u16le(CvtlStruct_HFA.Float) << 11,
+    HFA_Double = u16le(CvtlStruct_HFA.Double) << 11,
+    HFA_Other = u16le(CvtlStruct_HFA.Other) << 11,
     Intrinsics = 1 << 13, 
-    // _MocomB0, 14
-    // _MocomB1, 15
+    Mocom_Ref = u16le(CvtlStruct_MoCOM_UDT.Ref) << 14,
+    Mocom_Value = u16le(CvtlStruct_MoCOM_UDT.Value) << 14,
+    Mocom_Interface = u16le(CvtlStruct_MoCOM_UDT.Interface) << 14,
 }
 CvtlStruct_HFA :: enum u16le {
-    None, Float, Double, Other,
+    None=0, Float=1, Double=2, Other=3,
 }
 CvtlStruct_MoCOM_UDT :: enum u16le {
     None, Ref, Value, Interface,
@@ -521,8 +523,15 @@ read_cvtlEnum:: proc(this: ^BlocksReader) -> (ret: CvtlEnum) {
 
 CvtField_Attribute :: enum u16le {
     None = 0,
-    // access:CvtAccess 1<<0, 1<<1
-    // mprop:CvtMethodProp 1<<2,<<3,<<4
+    Access_Private = 1,
+    Access_Protected = 2,
+    Access_Public = 3,
+    Mprop_Virtual = u16le(CvtMethodProp.Virtual) << 2,
+    Mprop_Static = u16le(CvtMethodProp.Static) << 2,
+    Mprop_Friend = u16le(CvtMethodProp.Friend) << 2,
+    Mprop_Intro = u16le(CvtMethodProp.Intro) << 2,
+    Mprop_PureVirt = u16le(CvtMethodProp.PureVirt) << 2,
+    Mprop_PureIntro = u16le(CvtMethodProp.PureIntro) << 2,
     Pseudo = 1<<5, // compiler generated function, doesn't exist
     NoInherit = 1<<6, // class cannot be inherited
     NoConstruct = 1<<7, // class cannot be constructed
@@ -551,6 +560,7 @@ read_length_prefixed_name :: proc(this: ^BlocksReader) -> (ret: string) {
         if get_byte(this, i) == 0 do break
         nameLen+=1
     }
+    defer this.offset+=1 // eat trailing \0
     if nameLen == 0 do return ""
     //nameLen := cast(int)read_int_record(this)
     a := make([]byte, nameLen)

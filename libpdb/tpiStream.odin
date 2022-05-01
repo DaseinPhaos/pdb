@@ -40,7 +40,7 @@ parse_tpi_stream :: proc(this: ^BlocksReader) -> (header: TpiStreamHeader) {
     if header.version != .V80 {
         log.warnf("unrecoginized streamVersion: %v", header.version)
     }
-    //context.logger.lowest_level = .Warning
+    context.logger.lowest_level = .Warning
     for this.offset < this.size {
         cvtHeader := readv(this, CvtRecordHeader)
         log.debug(cvtHeader.kind)
@@ -109,9 +109,41 @@ parse_tpi_stream :: proc(this: ^BlocksReader) -> (header: TpiStreamHeader) {
             args := read_cvtlBuildInfo(this)
             log.debug(args)
         }
-        case .LF_FIELDLIST: // TODO:
+        case .LF_FIELDLIST: {
+            endOffset := baseOffset+ uint(cvtHeader.length) - size_of(CvtRecordKind)
+            for this.offset < endOffset {
+                for ;this.offset<endOffset;this.offset+=1 {
+                    if get_byte(this, this.offset) < u8(CvtRecordKind.LF_PAD0) {
+                        break
+                    }
+                }
+                subLf := readv(this, CvtRecordKind)
+                #partial switch (subLf) {
+                case .LF_BCLASS: {
+                    cvt := read_cvtfBclass(this)
+                    log.debug(cvt)
+                }
+                case .LF_VBCLASS:fallthrough
+                case .LF_IVBCLASS: {
+                    cvt := read_cvtfVbclass(this)
+                    log.debug(cvt)
+                }
+                case .LF_MEMBER: {
+                    cvt := read_cvtfMember(this)
+                    log.debug(cvt)
+                }
+                case .LF_ENUMERATE: {
+                    cvt := read_cvtfEnumerate(this)
+                    log.debug(cvt)
+                }
+                case: { //?
+                    log.debugf("unrecognized: %v", subLf)
+                }
+                }
+            }
+        }
         case .LF_VTSHAPE: // TODO:
-        case .LF_METHODLIST: //???
+        case .LF_METHODLIST:  //?
         case: log.warnf("Unhandled %v", cvtHeader.kind)
         }
         this.offset = baseOffset+ uint(cvtHeader.length) - size_of(CvtRecordKind)
