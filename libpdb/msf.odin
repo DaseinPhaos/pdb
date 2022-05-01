@@ -3,10 +3,12 @@ package libpdb
 import "core:fmt"
 import "core:strings"
 import "core:mem"
+import "core:log"
+
 // SuperBlock|FPM1|FPM2|DataBlocks[BlockSize-3]|FPM1|FPM2|DataBlocks[BlockSize-3])+
 
 FileMagic :string= "Microsoft C/C++ MSF 7.00\r\n\x1a\x44\x53\x00\x00\x00"
-SuperBlock :: struct {
+SuperBlock :: struct #packed {
     //fileMagic : [len(SuperBlock_FileMagic)]byte, // == SuperBlock_FileMagic
     blockSize : u32le, // block size of the internal file system == 4096
     freeBlockMapBlock : u32le, // index of a block which contains a bitfield indicating free blocks in the file. This index can only be 1/2. ????A file has two FPM to support incremental and atomic updates of the underlying MSF file: while writing, if active FPM is 1, you can write to free blocks indicated by FPM2, and vice-versa.??????
@@ -25,21 +27,12 @@ StreamDirectory :: struct {
 
 read_superblock :: proc(using this : ^SuperBlock, data: []byte) -> (success: bool) {
     if len(data)  < len(FileMagic) + size_of(SuperBlock) {
-        //fmt.println("bytes too small")
+        log.debug("data len too small")
         return false
     }
 
     if strings.compare(strings.string_from_ptr(&data[0], len(FileMagic)), FileMagic) != 0 {
-        // fmt.println("FileMagic mismatch")
-        // fmt.print("SRC: ")
-        // for c in data[:len(FileMagic)] {
-        //     fmt.printf("%x ", c)
-        // }
-        // fmt.print("\nDST: ")
-        // for c in transmute([]byte)FileMagic {
-        //     fmt.printf("%x ", c)
-        // }
-        // fmt.print("\n")
+        log.debug("FileMagic mismatch")
         return false
     }
 
@@ -55,12 +48,12 @@ read_stream_dir :: proc(using this: ^SuperBlock, data: []byte) -> (sd: StreamDir
         data = data, blockSize = uint(blockSize), indices = transmute([]u32le)mem.Raw_Slice{&data[sdmOffset],cast(int)sdmSize},
     }
 
-    sd.numStreams = read_u32_from_blocks(&breader)
+    sd.numStreams = readv_from_blocks(&breader, u32le)
     //fmt.printf("number of streams %v\n", sd.numStreams)
     sd.streamSizes = make([]u32le, sd.numStreams)
     sd.streamBlocks = make([][]u32le, sd.numStreams)
     for i in 0..<sd.numStreams {
-        sd.streamSizes[i] = read_u32_from_blocks(&breader)
+        sd.streamSizes[i] = readv_from_blocks(&breader, u32le)
         if sd.streamSizes[i] == 0xffff_ffff {
             sd.streamSizes[i] = 0 //? clear invalid streamSizes?
         }
@@ -72,7 +65,7 @@ read_stream_dir :: proc(using this: ^SuperBlock, data: []byte) -> (sd: StreamDir
         streamBlock := sd.streamBlocks[i]
         //fmt.printf("reading stream#%v indices...\n", i)
         for j in 0..< len(streamBlock) {
-            streamBlock[j] = read_u32_from_blocks(&breader)
+            streamBlock[j] = readv_from_blocks(&breader, u32le)
         }
     }
     return
@@ -84,6 +77,7 @@ BlocksReader :: struct {
     blockSize: uint,
     indices: []u32le,
     offset : uint,
+    size : uint,
 }
 
 get_byte_from_blocks :: proc(using this: ^BlocksReader, at: uint) -> byte {
@@ -94,29 +88,21 @@ get_byte_from_blocks :: proc(using this: ^BlocksReader, at: uint) -> byte {
     return data[bi*blockSize + iib]
 }
 
-read_u32_from_blocks :: proc(using this: ^BlocksReader) -> (ret:u32le) {
-    when true {
+readv_from_blocks :: proc(using this: ^BlocksReader, $T: typeid) -> (ret: T) {
+        tsize := cast(uint)size_of(T)
+        assert(size == 0 || offset + tsize <= size, "block overflow")
         bii := offset /blockSize
         iib := offset - (bii * blockSize)
-        if iib + 3 < blockSize {
-            ret = (cast(^u32le)&data[uint(indices[bii])*blockSize+iib])^
+        if iib + tsize <= blockSize {
+            ret = (cast(^T)&data[uint(indices[bii])*blockSize+iib])^
         } else {
-            b0 := u32le(data[uint(indices[bii])*blockSize+iib]) //b0 := u32le(get_byte_from_blocks(this, offset))
-            b1 := u32le(get_byte_from_blocks(this, offset+1))
-            b2 := u32le(get_byte_from_blocks(this, offset+2))
-            b3 := u32le(get_byte_from_blocks(this, offset+3))
-            ret = (b3 << 24) | (b2 << 16) | (b1 << 8) | b0
-        }   
-    } else {
-        b0 := u32le(get_byte_from_blocks(this, offset))
-        b1 := u32le(get_byte_from_blocks(this, offset+1))
-        b2 := u32le(get_byte_from_blocks(this, offset+2))
-        b3 := u32le(get_byte_from_blocks(this, offset+3))
-        ret = (b3 << 24) | (b2 << 16) | (b1 << 8) | b0
-    }
-    //fmt.printf("read u32le at offset[%v]: 0X%X\n", offset, ret)
-    offset+=4
-    return
+            pret := cast(^byte)&ret
+            for i in 0..<tsize {
+                mem.ptr_offset(pret, i)^ = get_byte_from_blocks(this, offset+i)
+            }
+        }
+        offset += tsize
+        return
 }
 
 @private

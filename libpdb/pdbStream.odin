@@ -1,6 +1,8 @@
 package libpdb
 
-PdbStreamHeader :: struct {
+PdbStream_Index :: 1
+
+PdbStreamHeader :: struct #packed {
     version: PdbStreamVersion,
     signature: u32le,
     age: u32le,
@@ -18,4 +20,16 @@ PdbStreamVersion :: enum u32le {
     VC80 = 20030901,
     VC110 = 20091201,
     VC140 = 20140508,
+}
+
+PdbNamedStreamMap :: struct {
+    strBuf : []byte,
+    nameMap: PdbHashTable(u32le),
+}
+
+PdbRaw_FeatureSig :: enum u32le {
+    VC110 = 20091201,
+    VC140 = 20140508,
+    NoTypeMerge = 0x4D544F4E,
+    MinimalDebugInfo = 0x494E494D,
 }
