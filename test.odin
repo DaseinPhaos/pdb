@@ -33,7 +33,7 @@ main ::proc() {
     streamDir := read_stream_dir(&sb, file_content)
     //log.debugf("streamDir: %v\n", streamDir)
 
-    pdbStreamReader := get_stream_reader(&streamDir, PdbStream_Index, file_content, sb.blockSize)
+    pdbStreamReader := get_stream_reader(&streamDir, PdbStream_Index)
     pdbHeader, nameMap, pdbFeatures := parse_pdb_stream(&pdbStreamReader)
     for ns in nameMap.names {
         log.debug(ns)
@@ -42,11 +42,11 @@ main ::proc() {
         log.debug(feature)
     }
     
-    tpiStreamReader := get_stream_reader(&streamDir, TpiStream_Index, file_content, sb.blockSize)
-    tpiStream := parse_tpi_stream(&tpiStreamReader)
+    tpiStreamReader := get_stream_reader(&streamDir, TpiStream_Index)
+    tpiStream, _ := parse_tpi_stream(&tpiStreamReader, &streamDir)
     fmt.println(tpiStream)
 
-    ipiStreamReader := get_stream_reader(&streamDir, IpiStream_Index, file_content, sb.blockSize)
-    ipiStream := parse_tpi_stream(&ipiStreamReader)
+    ipiStreamReader := get_stream_reader(&streamDir, IpiStream_Index)
+    ipiStream, _ := parse_tpi_stream(&ipiStreamReader, &streamDir)
     fmt.println(ipiStream)
 }

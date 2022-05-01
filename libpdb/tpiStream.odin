@@ -34,18 +34,55 @@ TpiStreamVersion :: enum u32le {
     V80 = 20040203,
 }
 
-parse_tpi_stream :: proc(this: ^BlocksReader) -> (header: TpiStreamHeader) {
+TpiIndexOffsetBuffer :: struct {
+    buf : []TpiIndexOffsetPair,
+}
+TpiIndexOffsetPair :: struct #packed {ti: TypeIndex, offset: u32le,}
+
+find_index_offset :: proc(using this: TpiIndexOffsetBuffer, ti : TypeIndex, tpiStream: ^BlocksReader) -> (tOffset: u32le) {
+    // TODO: bisearch then linear seaarch proc
+    for p in buf {
+        if p.ti == ti do return p.offset
+    }
+    return u32le(0xffff_ffff)
+}
+
+parse_tpi_stream :: proc(this: ^BlocksReader, dir: ^StreamDirectory) -> (header: TpiStreamHeader, tiob: TpiIndexOffsetBuffer) {
     header = readv(this, TpiStreamHeader)
     assert(header.headerSize == size_of(TpiStreamHeader), "Incorrect header size, mulfunctional stream")
     if header.version != .V80 {
         log.warnf("unrecoginized streamVersion: %v", header.version)
     }
+
+    if header.hashStreamIndex >= 0 {
+        hashStream := get_stream_reader(dir, cast(uint)header.hashStreamIndex)
+        iobLen := header.indexOffsetBufferLength / size_of(TpiIndexOffsetPair)
+        tiob.buf = make([]TpiIndexOffsetPair, iobLen)
+        hashStream.offset = uint(header.indexOffsetBufferOffset) //?
+        for i in 0..<iobLen {
+            tiob.buf[i] = readv(&hashStream, TpiIndexOffsetPair)
+        }
+    } else {
+        // fallback
+        tiob.buf = make([]TpiIndexOffsetPair, 1)
+        tiob.buf[0] = TpiIndexOffsetPair{ti = header.typeIndexBegin}
+    }
+    log.debug(tiob)
+
     context.logger.lowest_level = .Warning
     for this.offset < this.size {
         cvtHeader := readv(this, CvtRecordHeader)
         log.debug(cvtHeader.kind)
         baseOffset := this.offset
-        #partial switch  cvtHeader.kind {
+        inspect_cvt(this, cvtHeader, baseOffset)
+        this.offset = baseOffset+ uint(cvtHeader.length) - size_of(CvtRecordKind)
+    }
+
+    return
+}
+
+inspect_cvt :: proc(this: ^BlocksReader, cvtHeader : CvtRecordHeader, baseOffset: uint) {
+    #partial switch  cvtHeader.kind {
         case .LF_POINTER: {
             cvtPtr := readv(this, CvtlPointer)
             log.debug(cvtPtr)
@@ -146,8 +183,4 @@ parse_tpi_stream :: proc(this: ^BlocksReader) -> (header: TpiStreamHeader) {
         case .LF_METHODLIST:  //?
         case: log.warnf("Unhandled %v", cvtHeader.kind)
         }
-        this.offset = baseOffset+ uint(cvtHeader.length) - size_of(CvtRecordKind)
-    }
-
-    return
 }

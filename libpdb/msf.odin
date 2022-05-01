@@ -25,9 +25,11 @@ StreamDirectory :: struct {
     numStreams : u32le,
     streamSizes : []u32le, // len == numStreams. size of each stream in bytes
     streamBlocks : [][]u32le, // blockIndices = StreamBlocks[streamIdx]. len(blockIndices) == ceil(streamSizes[streamIdx]/superBlock.blockSize)
+    data: []byte, 
+    blockSize: u32le,
 }
 
-get_stream_reader :: #force_inline proc(using this: ^StreamDirectory, streamIdx : uint, data: []byte, blockSize: u32le) -> BlocksReader {
+get_stream_reader :: #force_inline proc(using this: ^StreamDirectory, streamIdx : uint) -> BlocksReader {
     return BlocksReader{
         data = data, blockSize = cast(uint)blockSize, indices = streamBlocks[streamIdx], size = cast(uint)streamSizes[streamIdx],
     }
@@ -60,6 +62,8 @@ read_stream_dir :: proc(using this: ^SuperBlock, data: []byte) -> (sd: StreamDir
     //fmt.printf("number of streams %v\n", sd.numStreams)
     sd.streamSizes = make([]u32le, sd.numStreams)
     sd.streamBlocks = make([][]u32le, sd.numStreams)
+    sd.data = data
+    sd.blockSize = blockSize
     for i in 0..<sd.numStreams {
         sd.streamSizes[i] = readv(&breader, u32le)
         if sd.streamSizes[i] == 0xffff_ffff {
