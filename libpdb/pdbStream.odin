@@ -42,16 +42,16 @@ PdbRaw_FeatureSig :: enum u32le {
 }
 
 parse_pdb_stream :: proc(this: ^BlocksReader) -> (header: PdbStreamHeader, nameMap: PdbNamedStreamMap, features: []PdbRaw_FeatureSig) {
-    header = readv_from_blocks(this, PdbStreamHeader)
+    header = readv(this, PdbStreamHeader)
     if header.version != .VC70 {
         log.warnf("unrecoginized pdbStreamVersion: %v", header.version)
     }
 
-    nameStringLen := readv_from_blocks(this, u32le)
+    nameStringLen := readv(this, u32le)
     //log.debugf("nameStringLen: %v", nameStringLen)
     nameMap.strBuf = make([]byte, nameStringLen)
     for i in 0..<nameStringLen {
-        nameMap.strBuf[i] = readv_from_blocks(this, byte)
+        nameMap.strBuf[i] = readv(this, byte)
     }
     namesTable := read_hash_table(this, u32le)
     nameMap.names = make([]PdbNamedStream, namesTable.size)
@@ -72,7 +72,7 @@ parse_pdb_stream :: proc(this: ^BlocksReader) -> (header: PdbStreamHeader, nameM
     featuresLen := (this.size - this.offset)/size_of(PdbRaw_FeatureSig)
     features = make([]PdbRaw_FeatureSig, featuresLen)
     for i in 0..<len(features) {
-        features[i] = readv_from_blocks(this, PdbRaw_FeatureSig)
+        features[i] = readv(this, PdbRaw_FeatureSig)
     }
 
     return

@@ -35,41 +35,41 @@ TpiStreamVersion :: enum u32le {
 }
 
 parse_tpi_stream :: proc(this: ^BlocksReader) -> (header: TpiStreamHeader) {
-    header = readv_from_blocks(this, TpiStreamHeader)
+    header = readv(this, TpiStreamHeader)
     assert(header.headerSize == size_of(TpiStreamHeader), "Incorrect header size, mulfunctional stream")
     if header.version != .V80 {
         log.warnf("unrecoginized streamVersion: %v", header.version)
     }
 
     for this.offset < this.size {
-        cvtHeader := readv_from_blocks(this, CvtRecordHeader)
+        cvtHeader := readv(this, CvtRecordHeader)
         log.debug(cvtHeader.kind)
         baseOffset := this.offset
         #partial switch  cvtHeader.kind {
         case .LF_POINTER: {
-            cvtPtr := readv_from_blocks(this, CvtLeafPointer)
+            cvtPtr := readv(this, CvtLeafPointer)
             log.debug(cvtPtr)
         }
         case .LF_PROCEDURE: {
-            cvtLeafProc := readv_from_blocks(this, CvtLeafProc)
+            cvtLeafProc := readv(this, CvtLeafProc)
             log.debug(cvtLeafProc)
         }
         case .LF_ARGLIST: {
-            argCount := readv_from_blocks(this, u32le)
+            argCount := readv(this, u32le)
             args := make([]TypeIndex, argCount)
             for i in 0..<argCount {
-                args[i] = readv_from_blocks(this, TypeIndex)
+                args[i] = readv(this, TypeIndex)
             }
             log.debug(args)
         }
         case .LF_CLASS:fallthrough
         case .LF_STRUCTURE:fallthrough
         case .LF_INTERFACE: {
-            cvtStruct := readv_from_blocks(this, CvtLeafStruct)
+            cvtStruct := readv(this, CvtLeafStruct)
             log.debug(cvtStruct)
         }
         case .LF_ENUM: {
-            cvtEnum := read_cvtlEnum_from_blocks(this)
+            cvtEnum := read_cvtlEnum(this)
             log.debug(cvtEnum)
         }
         }

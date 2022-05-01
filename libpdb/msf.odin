@@ -56,12 +56,12 @@ read_stream_dir :: proc(using this: ^SuperBlock, data: []byte) -> (sd: StreamDir
         data = data, blockSize = uint(blockSize), indices = transmute([]u32le)mem.Raw_Slice{&data[sdmOffset],cast(int)sdmSize},
     }
 
-    sd.numStreams = readv_from_blocks(&breader, u32le)
+    sd.numStreams = readv(&breader, u32le)
     //fmt.printf("number of streams %v\n", sd.numStreams)
     sd.streamSizes = make([]u32le, sd.numStreams)
     sd.streamBlocks = make([][]u32le, sd.numStreams)
     for i in 0..<sd.numStreams {
-        sd.streamSizes[i] = readv_from_blocks(&breader, u32le)
+        sd.streamSizes[i] = readv(&breader, u32le)
         if sd.streamSizes[i] == 0xffff_ffff {
             sd.streamSizes[i] = 0 //? clear invalid streamSizes?
         }
@@ -73,7 +73,7 @@ read_stream_dir :: proc(using this: ^SuperBlock, data: []byte) -> (sd: StreamDir
         streamBlock := sd.streamBlocks[i]
         //fmt.printf("reading stream#%v indices...\n", i)
         for j in 0..< len(streamBlock) {
-            streamBlock[j] = readv_from_blocks(&breader, u32le)
+            streamBlock[j] = readv(&breader, u32le)
         }
     }
     return
@@ -88,7 +88,7 @@ BlocksReader :: struct {
     size : uint,
 }
 
-get_byte_from_blocks :: proc(using this: ^BlocksReader, at: uint) -> byte {
+get_byte :: proc(using this: ^BlocksReader, at: uint) -> byte {
     bii := at / blockSize
     iib := at - (bii * blockSize)
     bi := cast(uint)indices[bii]
@@ -105,7 +105,7 @@ _can_readv :: proc ($T: typeid) -> bool {
     return true
 }
 
-readv_from_blocks :: proc(using this: ^BlocksReader, $T: typeid) -> (ret: T) {
+readv :: proc(using this: ^BlocksReader, $T: typeid) -> (ret: T) {
         when ODIN_DEBUG {
             assert(_can_readv(T)) // I wish this could've been constexpred
         }    
@@ -118,7 +118,7 @@ readv_from_blocks :: proc(using this: ^BlocksReader, $T: typeid) -> (ret: T) {
         } else {
             pret := cast(^byte)&ret
             for i in 0..<tsize {
-                mem.ptr_offset(pret, i)^ = get_byte_from_blocks(this, offset+i)
+                mem.ptr_offset(pret, i)^ = get_byte(this, offset+i)
             }
         }
         offset += tsize

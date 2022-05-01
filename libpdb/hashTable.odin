@@ -39,8 +39,8 @@ get_bit :: proc(using this: ^BitVector, at: u32le) -> bool {
 }
 
 read_hash_table :: proc(using this: ^BlocksReader, $Value: typeid) -> (ret:PdbHashTable(Value)) {
-    ret.size = readv_from_blocks(this, u32le)
-    ret.capacity = readv_from_blocks(this, u32le)
+    ret.size = readv(this, u32le)
+    ret.capacity = readv(this, u32le)
     //log.debugf("hash_table size%v capacity%v", ret.size, ret.capacity)
     ret.presentBits = read_bit_vector(this)
     log.debugf("presentBits: %v words read: 0x%x", len(ret.presentBits.words), ret.presentBits.words)
@@ -51,7 +51,7 @@ read_hash_table :: proc(using this: ^BlocksReader, $Value: typeid) -> (ret:PdbHa
         //NOTE(lux): documentation given at https://llvm.org/docs/PDB/HashTable.html doesn't seems to match actual pdbs tested, so we're guessing here that only valid and tombstone blocks get written into the file
         if get_bit(&ret.presentBits, i) || get_bit(&ret.deletedBits, i) {
             //log.debugf("read kvPair#%v of type %v with size %v... ", i, typeid_of(Value), size_of(PdbHashTable_KVPair(Value)))
-            ret.kvPairs[i] = readv_from_blocks(this, PdbHashTable_KVPair(Value))
+            ret.kvPairs[i] = readv(this, PdbHashTable_KVPair(Value))
             //log.debugf("key: %v, value: %v", ret.kvPairs[i].key, ret.kvPairs[i].value)
         }
     }
@@ -59,10 +59,10 @@ read_hash_table :: proc(using this: ^BlocksReader, $Value: typeid) -> (ret:PdbHa
 }
 
 read_bit_vector :: proc(using this: ^BlocksReader) -> (ret: BitVector) {
-    wordCount := readv_from_blocks(this, u32le)
+    wordCount := readv(this, u32le)
     ret.words = make([]u32le, wordCount)
     for i in 0..<wordCount {
-        ret.words[i] = readv_from_blocks(this, u32le)
+        ret.words[i] = readv(this, u32le)
     }
     return
 }

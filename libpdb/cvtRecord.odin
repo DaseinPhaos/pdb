@@ -176,17 +176,17 @@ CvtRecordKind :: enum u16le {
     LF_PAD15 = 0xff,
 }
 
-read_int_record_from_blocks :: proc(this: ^BlocksReader) -> i128le {
-    numKind := readv_from_blocks(this, CvtRecordKind)
+read_int_record :: proc(this: ^BlocksReader) -> i128le {
+    numKind := readv(this, CvtRecordKind)
     #partial switch numKind {
-    case .LF_CHAR: return cast(i128le)readv_from_blocks(this, i8)
-    case .LF_SHORT: return cast(i128le)readv_from_blocks(this, i16le)
-    case .LF_USHORT: return cast(i128le)readv_from_blocks(this, u16le)
-    case .LF_LONG: return cast(i128le)readv_from_blocks(this, i32le)
-    case .LF_ULONG: return cast(i128le)readv_from_blocks(this, u32le)
-    case .LF_QUADWORD: return cast(i128le)readv_from_blocks(this, i64le)
-    case .LF_UQUADWORD: return cast(i128le)readv_from_blocks(this, u64le)
-    case .LF_OCTWORD: return readv_from_blocks(this, i128le)
+    case .LF_CHAR: return cast(i128le)readv(this, i8)
+    case .LF_SHORT: return cast(i128le)readv(this, i16le)
+    case .LF_USHORT: return cast(i128le)readv(this, u16le)
+    case .LF_LONG: return cast(i128le)readv(this, i32le)
+    case .LF_ULONG: return cast(i128le)readv(this, u32le)
+    case .LF_QUADWORD: return cast(i128le)readv(this, i64le)
+    case .LF_UQUADWORD: return cast(i128le)readv(this, u64le)
+    case .LF_OCTWORD: return readv(this, i128le)
     case: assert(false, "unsupported record type. should be a non-overflow integer")
     }
     return -1
@@ -273,10 +273,10 @@ CvtField_BClass :: struct {
     baseType: TypeIndex, // type index of the base class
     offset  : uint, // offset of base within class, stored as a LF_NUMERIC
 }
-read_cvtfBclass_from_blocks :: proc(this: ^BlocksReader) -> (ret: CvtField_BClass) {
-    ret.attr = readv_from_blocks(this, CvtField_Attribute)
-    ret.baseType = readv_from_blocks(this, TypeIndex)
-    ret.offset = cast(uint)read_int_record_from_blocks(this)
+read_cvtfBclass :: proc(this: ^BlocksReader) -> (ret: CvtField_BClass) {
+    ret.attr = readv(this, CvtField_Attribute)
+    ret.baseType = readv(this, TypeIndex)
+    ret.offset = cast(uint)read_int_record(this)
     return
 }
 //====sub LF_VBCLASS|LF_IVBCLASS
@@ -287,12 +287,12 @@ CvtField_Vbclass :: struct {
     vbpo    : uint, // virtual base pointer offset from address pointer
     vbo     : uint, // virutal base offset from vbtable
 }
-read_cvtfVbclass_from_blocks :: proc(this: ^BlocksReader) -> (ret: CvtField_Vbclass) {
-    ret.attr = readv_from_blocks(this, CvtField_Attribute)
-    ret.baseType = readv_from_blocks(this, TypeIndex)
-    ret.vbptr = readv_from_blocks(this, TypeIndex)
-    ret.vbpo = cast(uint)read_int_record_from_blocks(this)
-    ret.vbo = cast(uint)read_int_record_from_blocks(this)
+read_cvtfVbclass :: proc(this: ^BlocksReader) -> (ret: CvtField_Vbclass) {
+    ret.attr = readv(this, CvtField_Attribute)
+    ret.baseType = readv(this, TypeIndex)
+    ret.vbptr = readv(this, TypeIndex)
+    ret.vbpo = cast(uint)read_int_record(this)
+    ret.vbo = cast(uint)read_int_record(this)
     return
 }
 //====sub LF_MEMBER
@@ -302,10 +302,10 @@ CvtField_Member :: struct {
     offset  : uint,
     name    : string,
 }
-read_cvtfMember_from_blocks :: proc(this: ^BlocksReader) -> (ret: CvtField_Member) {
-    ret.attr = readv_from_blocks(this, CvtField_Attribute)
-    ret.memType = readv_from_blocks(this, TypeIndex)
-    ret.offset = cast(uint)read_int_record_from_blocks(this)
+read_cvtfMember :: proc(this: ^BlocksReader) -> (ret: CvtField_Member) {
+    ret.attr = readv(this, CvtField_Attribute)
+    ret.memType = readv(this, TypeIndex)
+    ret.offset = cast(uint)read_int_record(this)
     ret.name = read_length_prefixed_name(this)
     return
 }
@@ -315,9 +315,9 @@ CvtField_Enumerate :: struct {
     value: uint, //? overflow?
     name: string,
 }
-read_cvtfEnumerate_from_blocks :: proc(this: ^BlocksReader) -> (ret: CvtField_Enumerate) {
-    ret.attr = readv_from_blocks(this, CvtField_Attribute)
-    ret.value = cast(uint)read_int_record_from_blocks(this)
+read_cvtfEnumerate :: proc(this: ^BlocksReader) -> (ret: CvtField_Enumerate) {
+    ret.attr = readv(this, CvtField_Attribute)
+    ret.value = cast(uint)read_int_record(this)
     ret.name = read_length_prefixed_name(this)
     return
 }
@@ -368,11 +368,11 @@ CvtLeafEnum :: struct {
     fieldList   : TypeIndex, // type index into the LF_FIELD descriptor list
     name        : string,
 }
-read_cvtlEnum_from_blocks:: proc(this: ^BlocksReader) -> (ret: CvtLeafEnum) {
-    ret.elemCount = readv_from_blocks(this, u16le)
-    ret.props = readv_from_blocks(this, CvtLeafStruct_Prop)
-    ret.underlyType = readv_from_blocks(this, TypeIndex)
-    ret.fieldList = readv_from_blocks(this, TypeIndex)
+read_cvtlEnum:: proc(this: ^BlocksReader) -> (ret: CvtLeafEnum) {
+    ret.elemCount = readv(this, u16le)
+    ret.props = readv(this, CvtLeafStruct_Prop)
+    ret.underlyType = readv(this, TypeIndex)
+    ret.fieldList = readv(this, TypeIndex)
     ret.name = read_length_prefixed_name(this)
     return
 }
@@ -403,16 +403,16 @@ CvtMethodProp :: enum u8 {
 }
 
 read_length_prefixed_name :: proc(this: ^BlocksReader) -> (ret: string) {
-    //nameLen := cast(int)readv_from_blocks(this, u8) //? this is a fucking lie?
+    //nameLen := cast(int)readv(this, u8) //? this is a fucking lie?
     nameLen :int = 0
     for i in this.offset..<this.size {
-        if get_byte_from_blocks(this, i) == 0 do break
+        if get_byte(this, i) == 0 do break
         nameLen+=1
     }
-    //nameLen := cast(int)read_int_record_from_blocks(this)
+    //nameLen := cast(int)read_int_record(this)
     a := make([]byte, nameLen)
     for i in 0..<nameLen {
-        a[i] = readv_from_blocks(this, byte)
+        a[i] = readv(this, byte)
     }
     return strings.string_from_ptr(&a[0], nameLen)
 }
