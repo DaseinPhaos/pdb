@@ -106,8 +106,9 @@ _can_readv :: proc ($T: typeid) -> bool {
 }
 
 readv :: proc(using this: ^BlocksReader, $T: typeid) -> (ret: T) {
-        when ODIN_DEBUG {
-            assert(_can_readv(T)) // I wish this could've been constexpred
+        when ODIN_DEBUG==true {
+            //log.errorf("Type %v cannot be read", type_info_of(T))
+            assert(_can_readv(T), "type cannot be read") // I wish this could've been constexpred
         }    
         tsize := cast(uint)size_of(T)
         assert(size == 0 || offset + tsize <= size, "block overflow")

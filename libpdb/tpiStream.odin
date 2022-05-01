@@ -40,38 +40,79 @@ parse_tpi_stream :: proc(this: ^BlocksReader) -> (header: TpiStreamHeader) {
     if header.version != .V80 {
         log.warnf("unrecoginized streamVersion: %v", header.version)
     }
-
+    //context.logger.lowest_level = .Warning
     for this.offset < this.size {
         cvtHeader := readv(this, CvtRecordHeader)
         log.debug(cvtHeader.kind)
         baseOffset := this.offset
         #partial switch  cvtHeader.kind {
         case .LF_POINTER: {
-            cvtPtr := readv(this, CvtLeafPointer)
+            cvtPtr := readv(this, CvtlPointer)
             log.debug(cvtPtr)
         }
         case .LF_PROCEDURE: {
-            cvtLeafProc := readv(this, CvtLeafProc)
-            log.debug(cvtLeafProc)
+            CvtlProc := readv(this, CvtlProc)
+            log.debug(CvtlProc)
         }
-        case .LF_ARGLIST: {
-            argCount := readv(this, u32le)
-            args := make([]TypeIndex, argCount)
-            for i in 0..<argCount {
-                args[i] = readv(this, TypeIndex)
-            }
+        case .LF_ARGLIST:fallthrough
+        case .LF_SUBSTR_LIST: {
+            args := read_cvtfArgList(this)
             log.debug(args)
         }
         case .LF_CLASS:fallthrough
         case .LF_STRUCTURE:fallthrough
         case .LF_INTERFACE: {
-            cvtStruct := readv(this, CvtLeafStruct)
+            cvtStruct := read_cvtlStruct(this)
             log.debug(cvtStruct)
         }
         case .LF_ENUM: {
             cvtEnum := read_cvtlEnum(this)
             log.debug(cvtEnum)
         }
+        case .LF_ARRAY: {
+            cvtArray := read_cvtlArray(this)
+            log.debug(cvtArray)
+        }
+        case .LF_UNION: {
+            cvtUnion := read_cvtlUnion(this)
+            log.debug(cvtUnion)
+        }
+        case .LF_MODIFIER: {
+            cvt := readv(this, CvtlModifier)
+            log.debug(cvt)
+        }
+        case .LF_MFUNCTION: {
+            cvt := readv(this, CvtlMFunction)
+            log.debug(cvt)
+        }
+        case .LF_BITFIELD: {
+            cvt := readv(this, CvtlBitfield)
+            log.debug(cvt)
+        }
+        case .LF_STRING_ID: {
+            cvt := read_cvtlStringId(this)
+            log.debug(cvt)
+        }
+        case .LF_FUNC_ID: {
+            cvt := read_cvtlFuncId(this)
+            log.debug(cvt)
+        }
+        case .LF_MFUNC_ID: {
+            cvt := read_cvtlMfuncId(this)
+            log.debug(cvt)
+        }
+        case .LF_UDT_MOD_SRC_LINE: {
+            cvt := readv(this, CvtlUdtModSrcLine)
+            log.debug(cvt)
+        }
+        case .LF_BUILDINFO: {
+            args := read_cvtlBuildInfo(this)
+            log.debug(args)
+        }
+        case .LF_FIELDLIST: // TODO:
+        case .LF_VTSHAPE: // TODO:
+        case .LF_METHODLIST: //???
+        case: log.warnf("Unhandled %v", cvtHeader.kind)
         }
         this.offset = baseOffset+ uint(cvtHeader.length) - size_of(CvtRecordKind)
     }
