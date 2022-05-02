@@ -39,12 +39,37 @@ TpiIndexOffsetBuffer :: struct {
 }
 TpiIndexOffsetPair :: struct #packed {ti: TypeIndex, offset: u32le,}
 
+// TODO: test this method...
 find_index_offset :: proc(using this: TpiIndexOffsetBuffer, ti : TypeIndex, tpiStream: ^BlocksReader) -> (tOffset: u32le) {
-    // TODO: bisearch then linear seaarch proc
-    for p in buf {
-        if p.ti == ti do return p.offset
+    // bisearch then linear seaarch proc
+    tOffset = 0xffff_ffff
+    lo, hi := 0, (len(buf)-1)
+    if hi < 0 || buf[lo].ti > ti || buf[hi].ti < ti do return
+    // ti in range, do a bisearch
+    for lo <= hi {
+        log.debugf("Find block [%v, %v) for ti%v", lo,hi, ti)
+        mid := lo + ((hi-lo)>>1)
+        mv := buf[mid].ti
+        if mv == ti {
+            lo = mid + 1
+            break
+        }
+        else if mv > ti do hi = mid - 1
+        else do lo = mid + 1
     }
-    return u32le(0xffff_ffff)
+    if lo > 0 do lo -= 1
+    log.debugf("Find block [%v, %v) for ti%v", lo,lo+1, ti)
+    // now a linear search from lo to high
+    tIdx := buf[lo].ti
+    tpiStream.offset = cast(uint)buf[lo].offset
+    endOffset := tpiStream.size
+    if lo+1 < len(buf) do endOffset = cast(uint)buf[lo+1].offset
+    for ;tpiStream.offset < endOffset && tIdx != ti; tIdx+=1 {
+        cvtHeader := readv(tpiStream, CvtRecordHeader)
+        tpiStream.offset += cast(uint)cvtHeader.length - size_of(CvtRecordKind)
+    }
+    log.debugf("Block offset: %v", tpiStream.offset)
+    return u32le(tpiStream.offset)
 }
 
 parse_tpi_stream :: proc(this: ^BlocksReader, dir: ^StreamDirectory) -> (header: TpiStreamHeader, tiob: TpiIndexOffsetBuffer) {
@@ -61,6 +86,7 @@ parse_tpi_stream :: proc(this: ^BlocksReader, dir: ^StreamDirectory) -> (header:
         hashStream.offset = uint(header.indexOffsetBufferOffset) //?
         for i in 0..<iobLen {
             tiob.buf[i] = readv(&hashStream, TpiIndexOffsetPair)
+            tiob.buf[i].offset += u32le(this.offset) // apply header offset here as well.
         }
     } else {
         // fallback
@@ -69,13 +95,26 @@ parse_tpi_stream :: proc(this: ^BlocksReader, dir: ^StreamDirectory) -> (header:
     }
     log.debug(tiob)
 
-    context.logger.lowest_level = .Warning
-    for this.offset < this.size {
-        cvtHeader := readv(this, CvtRecordHeader)
-        log.debug(cvtHeader.kind)
-        baseOffset := this.offset
-        inspect_cvt(this, cvtHeader, baseOffset)
-        this.offset = baseOffset+ uint(cvtHeader.length) - size_of(CvtRecordKind)
+    // context.logger.lowest_level = .Warning
+    // for this.offset < this.size {
+    //     cvtHeader := readv(this, CvtRecordHeader)
+    //     log.debug(cvtHeader.kind)
+    //     baseOffset := this.offset
+    //     inspect_cvt(this, cvtHeader, baseOffset)
+    //     this.offset = baseOffset+ uint(cvtHeader.length) - size_of(CvtRecordKind)
+    // }
+
+    {
+        tOffset := find_index_offset(tiob, 14529, this)
+        if tOffset == 0xffff_ffff {
+            log.warn("type not found")
+        } else {
+            this.offset = uint(tOffset)
+            cvtHeader := readv(this, CvtRecordHeader)
+            log.debug(cvtHeader.kind)
+            baseOffset := this.offset
+            inspect_cvt(this, cvtHeader, baseOffset)
+        }
     }
 
     return

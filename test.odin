@@ -6,7 +6,7 @@ import "core:strings"
 import "core:log"
 
 main ::proc() {
-    //odin run test.odin -out:build\test.exe -- .\build\test.pdb
+    //odin run test.odin -file -out:build\test.exe -debug -- .\build\test.pdb
     //pdb_path := "H:/projects/pdbReader/build/test.pdb"
     //pdb_path := "G:/repos/PDBDumpWV/PDBDumpWV/bin/Debug/PDBDumpWV.pdb"
     pdb_path, _ := strings.replace_all(os.args[1], "\\", "/")
