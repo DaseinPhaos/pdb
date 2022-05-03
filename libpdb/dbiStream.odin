@@ -80,6 +80,8 @@ read_dbiModInfo :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where intri
     ret._base = readv(this, type_of(ret._base))
     ret.moduleName = read_length_prefixed_name(this)
     ret.objFileName = read_length_prefixed_name(this)
+    // align to 4-byte boundary
+    this.offset = (this.offset + 3) & ~uint(3)
     return ret
 }
 
@@ -93,7 +95,7 @@ DbiSecContrEntry :: struct #packed {
     offset          : i32le,
     size            : i32le,
     chaaracteristics: u32le,
-    moduleIndex     : u16le,
+    moduleIndex     : i16le,
     padding2        : u16le,
     dataCrc         : u32le,
     relocCrc        : u32le,
@@ -206,8 +208,8 @@ parse_dbi_stream :: proc(this: ^BlocksReader) -> (header : DbiStreamHeader) {
         substreamEnd := uint(header.modInfoSize) + this.offset
         defer assert(this.offset == substreamEnd)
         for this.offset < substreamEnd {
-            readv(this, DbiModInfo)
-            //log.debug(modi)
+            modi := readv(this, DbiModInfo)
+            log.debugf("%v, after read: %v", modi, this.offset)
         }
     }
 
@@ -237,21 +239,22 @@ parse_dbi_stream :: proc(this: ^BlocksReader) -> (header : DbiStreamHeader) {
         log.debug(secMapHeader)
 
         for this.offset < substreamEnd {
-            readv(this, DbiSecMapEntry)
+            secMap := readv(this, DbiSecMapEntry)
+            log.debug(secMap)
         }
     }
 
     { // file info substream
         substreamEnd := uint(header.srcInfoSize) + this.offset
         defer this.offset = substreamEnd // because...
-        readv(this, DbiFileInfos)
-        //log.debug(dbiFileInfos)
+        dbiFileInfos := readv(this, DbiFileInfos)
+        log.debug(dbiFileInfos)
     }
     this.offset += uint(header.typeServerMapSize)
     this.offset += uint(header.ecSubstreamSize)
     { // optDbgHeaderSize
-        readv(this, DbiOptDbgHeaders)
-        //log.debug(optDbgHeaders)
+        optDbgHeaders := readv(this, DbiOptDbgHeaders)
+        log.debug(optDbgHeaders)
     }
 
     return

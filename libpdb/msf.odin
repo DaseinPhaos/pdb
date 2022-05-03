@@ -145,7 +145,7 @@ read_packed :: proc(using this: ^BlocksReader, $T: typeid) -> (ret: T)
             }
         }
         
-        offset += tsize
+        offset += cast(uint)size_of(T)
         return
 }
 
