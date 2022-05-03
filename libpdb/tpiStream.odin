@@ -132,25 +132,25 @@ inspect_cvt :: proc(this: ^BlocksReader, cvtHeader : CvtRecordHeader, baseOffset
         }
         case .LF_ARGLIST:fallthrough
         case .LF_SUBSTR_LIST: {
-            args := read_cvtfArgList(this)
+            args := readv(this, CvtlProc_ArgList)
             log.debug(args)
         }
         case .LF_CLASS:fallthrough
         case .LF_STRUCTURE:fallthrough
         case .LF_INTERFACE: {
-            cvtStruct := read_cvtlStruct(this)
+            cvtStruct := readv(this, CvtlStruct)
             log.debug(cvtStruct)
         }
         case .LF_ENUM: {
-            cvtEnum := read_cvtlEnum(this)
+            cvtEnum := readv(this, CvtlEnum)
             log.debug(cvtEnum)
         }
         case .LF_ARRAY: {
-            cvtArray := read_cvtlArray(this)
+            cvtArray := readv(this, CvtlArray)
             log.debug(cvtArray)
         }
         case .LF_UNION: {
-            cvtUnion := read_cvtlUnion(this)
+            cvtUnion := readv(this, CvtlUnion)
             log.debug(cvtUnion)
         }
         case .LF_MODIFIER: {
@@ -166,15 +166,15 @@ inspect_cvt :: proc(this: ^BlocksReader, cvtHeader : CvtRecordHeader, baseOffset
             log.debug(cvt)
         }
         case .LF_STRING_ID: {
-            cvt := read_cvtlStringId(this)
+            cvt := readv(this, CvtlStringId)
             log.debug(cvt)
         }
         case .LF_FUNC_ID: {
-            cvt := read_cvtlFuncId(this)
+            cvt := readv(this, CvtlFuncId)
             log.debug(cvt)
         }
         case .LF_MFUNC_ID: {
-            cvt := read_cvtlMfuncId(this)
+            cvt := readv(this, CvtlMfuncId)
             log.debug(cvt)
         }
         case .LF_UDT_MOD_SRC_LINE: {
@@ -182,7 +182,7 @@ inspect_cvt :: proc(this: ^BlocksReader, cvtHeader : CvtRecordHeader, baseOffset
             log.debug(cvt)
         }
         case .LF_BUILDINFO: {
-            args := read_cvtlBuildInfo(this)
+            args := readv(this, CvtlBuildInfo)
             log.debug(args)
         }
         case .LF_FIELDLIST: {
@@ -196,20 +196,20 @@ inspect_cvt :: proc(this: ^BlocksReader, cvtHeader : CvtRecordHeader, baseOffset
                 subLf := readv(this, CvtRecordKind)
                 #partial switch (subLf) {
                 case .LF_BCLASS: {
-                    cvt := read_cvtfBclass(this)
+                    cvt := readv(this, CvtField_BClass)
                     log.debug(cvt)
                 }
                 case .LF_VBCLASS:fallthrough
                 case .LF_IVBCLASS: {
-                    cvt := read_cvtfVbclass(this)
+                    cvt := readv(this, CvtField_Vbclass)
                     log.debug(cvt)
                 }
                 case .LF_MEMBER: {
-                    cvt := read_cvtfMember(this)
+                    cvt := readv(this, CvtField_Member)
                     log.debug(cvt)
                 }
                 case .LF_ENUMERATE: {
-                    cvt := read_cvtfEnumerate(this)
+                    cvt := readv(this, CvtField_Enumerate)
                     log.debug(cvt)
                 }
                 case: { //?

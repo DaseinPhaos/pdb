@@ -101,7 +101,7 @@ get_byte :: proc(using this: ^BlocksReader, at: uint) -> byte {
 }
 
 @private
-_can_readv :: proc ($T: typeid) -> bool {
+_can_read_packed :: proc ($T: typeid) -> bool {
     if intrinsics.type_is_struct(T) {
         ti := cast(^runtime.Type_Info_Struct)type_info_of(T)
         return ti.is_packed
@@ -109,10 +109,14 @@ _can_readv :: proc ($T: typeid) -> bool {
     return true
 }
 
-readv :: proc(using this: ^BlocksReader, $T: typeid) -> (ret: T) {
+MsfNotPackedMarker :: struct {}
+
+read_packed :: proc(using this: ^BlocksReader, $T: typeid) -> (ret: T)
+    where !intrinsics.type_has_field(T, "_base"),
+    !intrinsics.type_is_subtype_of(T, MsfNotPackedMarker) {
         when ODIN_DEBUG==true {
             //log.errorf("Type %v cannot be read", type_info_of(T))
-            assert(_can_readv(T), "type cannot be read") // I wish this could've been constexpred
+            assert(_can_read_packed(T), "type cannot be read") // I wish this could've been constexpred
         }    
         tsize := cast(uint)size_of(T)
         assert(size == 0 || offset + tsize <= size, "block overflow")
@@ -144,6 +148,31 @@ readv :: proc(using this: ^BlocksReader, $T: typeid) -> (ret: T) {
         offset += tsize
         return
 }
+
+read_with_trailing_name :: #force_inline proc(this: ^BlocksReader, $T: typeid) -> (ret: T)
+    where intrinsics.type_has_field(T, "_base"), 
+          intrinsics.type_has_field(T, "name"),
+          intrinsics.type_field_index_of(T, "name") == 1,
+          intrinsics.type_struct_field_count(T) == 2 {
+    ret._base = read_packed(this, type_of(ret._base))
+    ret.name = read_length_prefixed_name(this)
+    return ret
+}
+
+read_with_size_and_trailing_name :: #force_inline proc(this: ^BlocksReader, $T: typeid) -> (ret: T)
+    where intrinsics.type_has_field(T, "_base"), 
+          intrinsics.type_has_field(T, "name"),
+          intrinsics.type_has_field(T, "size"),
+          intrinsics.type_field_index_of(T, "size") == 1,
+          intrinsics.type_field_index_of(T, "name") == 2,
+          intrinsics.type_struct_field_count(T) == 3 {
+    ret._base = read_packed(this, type_of(ret._base))
+    ret.size = cast(uint)read_int_record(this)
+    ret.name = read_length_prefixed_name(this)
+    return
+}
+
+readv :: proc { read_packed, read_with_trailing_name, read_with_size_and_trailing_name, read_cvtlBuildInfo, read_cvtlUnion, read_cvtfArgList, read_cvtfBclass, read_cvtfVbclass, read_cvtfMember, read_cvtfEnumerate, read_dbiModInfo, read_dbiFileInfos, read_cvsFunctionList,}
 
 read_length_prefixed_name :: proc(this: ^BlocksReader) -> (ret: string) {
     //nameLen := cast(int)readv(this, u8) //? this is a fucking lie?

@@ -1,6 +1,7 @@
 //! DBI Debug Info Stream reference: https://llvm.org/docs/PDB/DbiStream.html
 package libpdb
 import "core:log"
+import "core:intrinsics"
 
 DbiStream_Index :: 3
 
@@ -51,6 +52,7 @@ DbiFlags :: enum u16le {
 
 //==== Module Info Substream, array of DbiModInfos.
 DbiModInfo :: struct {
+    // using _npm : MsfNotPackedMarker,
     using _base : struct #packed {
         unused1             : u32le,
         sectionContr        : DbiSecContrEntry,
@@ -74,7 +76,7 @@ DbiModInfo_Flags :: enum u16le {
     EC = 1 << 1, // edit and continue
     // TODO: TypeServerIndex stuff in high8
 }
-read_dbiModInfo :: proc(using this: ^BlocksReader) -> (ret: DbiModInfo) {
+read_dbiModInfo :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where intrinsics.type_is_subtype_of(T, DbiModInfo) {
     ret._base = readv(this, type_of(ret._base))
     ret.moduleName = read_length_prefixed_name(this)
     ret.objFileName = read_length_prefixed_name(this)
@@ -127,6 +129,7 @@ DbiSecMapEntryFlags :: enum u16le {
 }
 
 DbiFileInfos :: struct {
+    using _npm : MsfNotPackedMarker,
     // numModules :: u16le
     // numSourceFiles :: u16le
     // modIndices      : []u16le, // len==numModules
@@ -134,7 +137,7 @@ DbiFileInfos :: struct {
     srcFileNames    : []string, // fileNameOffsets : []u32le,
     // namesBuffer     : []string,
 }
-read_dbiFileInfos :: proc(this: ^BlocksReader) -> (ret:DbiFileInfos) {
+read_dbiFileInfos :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where intrinsics.type_is_subtype_of(T, DbiFileInfos) {
     moduleCount := readv(this, u16le)
     readv(this, u16le) // ignored invalid src count
     //log.debugf("Module count: %v", moduleCount)
@@ -203,10 +206,8 @@ parse_dbi_stream :: proc(this: ^BlocksReader) -> (header : DbiStreamHeader) {
         substreamEnd := uint(header.modInfoSize) + this.offset
         defer assert(this.offset == substreamEnd)
         for this.offset < substreamEnd {
-            modi := read_dbiModInfo(this)
-            if modi.moduleSymStream != -1 {
-                log.debug(modi)
-            }
+            readv(this, DbiModInfo)
+            //log.debug(modi)
         }
     }
 
@@ -243,7 +244,7 @@ parse_dbi_stream :: proc(this: ^BlocksReader) -> (header : DbiStreamHeader) {
     { // file info substream
         substreamEnd := uint(header.srcInfoSize) + this.offset
         defer this.offset = substreamEnd // because...
-        read_dbiFileInfos(this)
+        readv(this, DbiFileInfos)
         //log.debug(dbiFileInfos)
     }
     this.offset += uint(header.typeServerMapSize)

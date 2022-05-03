@@ -1,7 +1,8 @@
-//! code view type records, reference: https://llvm.org/docs/PDB/CodeViewTypes.html
+//! CodeView Type records, reference: https://llvm.org/docs/PDB/CodeViewTypes.html
 package libpdb
 import "core:log"
 import "core:strings"
+import "core:intrinsics"
 
 // |           Unused          | Mode |   Kind   |
 // |+32                        |+12   |+8        |+0
@@ -270,38 +271,30 @@ CvtlBitfield :: struct #packed {
 }
 //====type record for LF_STRING_ID
 CvtlStringId :: struct {
-    id : CvItemId, // ID to list of sub string IDs
-    name : string,
+    using _base : struct #packed {
+        id  : CvItemId, // ID to list of sub string IDs
+    },
+    name    : string,
 }
-read_cvtlStringId ::proc(this: ^BlocksReader) -> (ret: CvtlStringId) {
-    ret.id = readv(this, CvItemId)
-    ret.name = read_length_prefixed_name(this)
-    return
-}
+
 //====type record for LF_FUNC_ID
 CvtlFuncId :: struct {
-    scopeId  : CvItemId, // parrent scope of the ID, 0 if global
-    funcType : TypeIndex,
+    using _base : struct #packed {
+        scopeId  : CvItemId, // parrent scope of the ID, 0 if global
+        funcType : TypeIndex,
+    },
     name     : string,
 }
-read_cvtlFuncId ::proc(this: ^BlocksReader) -> (ret: CvtlFuncId) {
-    ret.scopeId = readv(this, CvItemId)
-    ret.funcType = readv(this, TypeIndex)
-    ret.name = read_length_prefixed_name(this)
-    return
-}
+
 //====type record for LF_MFUNC_ID
 CvtlMfuncId :: struct {
-    parent   : TypeIndex,
-    funcType : TypeIndex,
+    using _base : struct #packed {
+        parent   : TypeIndex,
+        funcType : TypeIndex,
+    },
     name     : string,
 }
-read_cvtlMfuncId ::proc(this: ^BlocksReader) -> (ret: CvtlMfuncId) {
-    ret.parent = readv(this, TypeIndex)
-    ret.funcType = readv(this, TypeIndex)
-    ret.name = read_length_prefixed_name(this)
-    return
-}
+
 //====type record for LF_UDT_MOD_SRC_LINE
 CvtlUdtModSrcLine :: struct #packed {
     udtType : TypeIndex,
@@ -311,10 +304,11 @@ CvtlUdtModSrcLine :: struct #packed {
 }
 //====type record for LF_BUILDINFO
 CvtlBuildInfo :: struct {
+    using _npm : MsfNotPackedMarker,
     //count : u16le,
     args : []CvItemId,
 }
-read_cvtlBuildInfo :: proc(this: ^BlocksReader) -> (ret: CvtlBuildInfo) {
+read_cvtlBuildInfo :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where intrinsics.type_is_subtype_of(T, CvtlBuildInfo) {
     argCount := readv(this, u16le)
     ret.args = make([]CvItemId, argCount)
     for i in 0..<argCount {
@@ -352,10 +346,11 @@ CvtlMFunction :: struct #packed {
 
 //====type record for LF_ARGLIST, LF_SUBSTR_LIST
 CvtlProc_ArgList :: struct {
+    using _npm : MsfNotPackedMarker,
     //count : u32le,
     args : []TypeIndex,
 }
-read_cvtfArgList :: proc(this: ^BlocksReader) -> (ret: CvtlProc_ArgList) {
+read_cvtfArgList :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where intrinsics.type_is_subtype_of(T, CvtlProc_ArgList) {
     argCount := readv(this, u32le)
     ret.args = make([]TypeIndex, argCount)
     for i in 0..<argCount {
@@ -368,11 +363,13 @@ read_cvtfArgList :: proc(this: ^BlocksReader) -> (ret: CvtlProc_ArgList) {
 // a collection of sub fields.
 //====sub LF_BCLASS
 CvtField_BClass :: struct {
+    using _npm : MsfNotPackedMarker,
     attr    : CvtField_Attribute,
     baseType: TypeIndex, // type index of the base class
     offset  : uint, // offset of base within class, stored as a LF_NUMERIC
 }
-read_cvtfBclass :: proc(this: ^BlocksReader) -> (ret: CvtField_BClass) {
+read_cvtfBclass :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T)
+    where intrinsics.type_is_subtype_of(T, CvtField_BClass) {
     ret.attr = readv(this, CvtField_Attribute)
     ret.baseType = readv(this, TypeIndex)
     ret.offset = cast(uint)read_int_record(this)
@@ -380,13 +377,14 @@ read_cvtfBclass :: proc(this: ^BlocksReader) -> (ret: CvtField_BClass) {
 }
 //====sub LF_VBCLASS|LF_IVBCLASS
 CvtField_Vbclass :: struct {
+    using _npm : MsfNotPackedMarker,
     attr    : CvtField_Attribute,
     baseType: TypeIndex,
     vbptr   : TypeIndex,
     vbpo    : uint, // virtual base pointer offset from address pointer
     vbo     : uint, // virutal base offset from vbtable
 }
-read_cvtfVbclass :: proc(this: ^BlocksReader) -> (ret: CvtField_Vbclass) {
+read_cvtfVbclass :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where intrinsics.type_is_subtype_of(T, CvtField_Vbclass) {
     ret.attr = readv(this, CvtField_Attribute)
     ret.baseType = readv(this, TypeIndex)
     ret.vbptr = readv(this, TypeIndex)
@@ -396,12 +394,13 @@ read_cvtfVbclass :: proc(this: ^BlocksReader) -> (ret: CvtField_Vbclass) {
 }
 //====sub LF_MEMBER
 CvtField_Member :: struct {
+    using _npm : MsfNotPackedMarker,
     attr    : CvtField_Attribute,
     memType : TypeIndex,
     offset  : uint,
     name    : string,
 }
-read_cvtfMember :: proc(this: ^BlocksReader) -> (ret: CvtField_Member) {
+read_cvtfMember :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where intrinsics.type_is_subtype_of(T, CvtField_Member) {
     ret.attr = readv(this, CvtField_Attribute)
     ret.memType = readv(this, TypeIndex)
     ret.offset = cast(uint)read_int_record(this)
@@ -410,11 +409,12 @@ read_cvtfMember :: proc(this: ^BlocksReader) -> (ret: CvtField_Member) {
 }
 //====sub LF_ENUMERATE
 CvtField_Enumerate :: struct {
+    using _npm : MsfNotPackedMarker,
     attr : CvtField_Attribute,
     value: uint, //? overflow?
     name : string,
 }
-read_cvtfEnumerate :: proc(this: ^BlocksReader) -> (ret: CvtField_Enumerate) {
+read_cvtfEnumerate :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where intrinsics.type_is_subtype_of(T, CvtField_Enumerate) {
     ret.attr = readv(this, CvtField_Attribute)
     ret.value = cast(uint)read_int_record(this)
     ret.name = read_length_prefixed_name(this)
@@ -424,28 +424,24 @@ read_cvtfEnumerate :: proc(this: ^BlocksReader) -> (ret: CvtField_Enumerate) {
 
 //====type record for LF_ARRAY
 CvtlArray :: struct {
-    elemType : TypeIndex,
-    idxType  : TypeIndex,
+    using _base : struct #packed {
+        elemType : TypeIndex,
+        idxType  : TypeIndex,
+    },
     size     : uint,
     name     : string,
-}
-read_cvtlArray :: proc(this: ^BlocksReader) -> (ret: CvtlArray) {
-    ret.elemType = readv(this, TypeIndex)
-    ret.idxType = readv(this, TypeIndex)
-    ret.size = cast(uint)read_int_record(this)
-    ret.name = read_length_prefixed_name(this)
-    return
 }
 
 //====type record for LF_UNION
 CvtlUnion :: struct {
+    using _npm : MsfNotPackedMarker,
     elemCount : u16le,
     props     : CvtlStruct_Prop,
     field     : TypeIndex, // LF_FIELD descriptor list
     size      : uint,
     name      : string,
 }
-read_cvtlUnion :: proc(this: ^BlocksReader) -> (ret: CvtlUnion) {
+read_cvtlUnion :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where intrinsics.type_is_subtype_of(T, CvtlUnion) {
     ret.elemCount = readv(this, u16le)
     ret.props = readv(this, CvtlStruct_Prop)
     ret.field = readv(this, TypeIndex)
@@ -457,23 +453,15 @@ read_cvtlUnion :: proc(this: ^BlocksReader) -> (ret: CvtlUnion) {
 //====type record for LF_CLASS, LF_STRUCTURE, LF_INTERFACE
 // followed by data describing length of structure in bytes and name
 CvtlStruct :: struct {
-    elemCount   : u16le,
-    props       : CvtlStruct_Prop,
-    field       : TypeIndex, // LF_FIELD descriptor list
-    derivedFrom : TypeIndex, // derived from list if not zero
-    vshape      : TypeIndex, // vshape table
+    using _base : struct #packed {
+        elemCount   : u16le,
+        props       : CvtlStruct_Prop,
+        field       : TypeIndex, // LF_FIELD descriptor list
+        derivedFrom : TypeIndex, // derived from list if not zero
+        vshape      : TypeIndex, // vshape table
+    },
     size        : uint,
     name        : string,
-}
-read_cvtlStruct :: proc(this: ^BlocksReader) -> (ret: CvtlStruct) {
-    ret.elemCount = readv(this, u16le)
-    ret.props = readv(this, CvtlStruct_Prop)
-    ret.field = readv(this, TypeIndex)
-    ret.derivedFrom = readv(this, TypeIndex)
-    ret.vshape = readv(this, TypeIndex)
-    ret.size = cast(uint)read_int_record(this)
-    ret.name = read_length_prefixed_name(this)
-    return
 }
 
 CvtlStruct_Prop :: enum u16le {
@@ -506,19 +494,13 @@ CvtlStruct_MoCOM_UDT :: enum u16le {
 
 //====type record for LF_ENUM
 CvtlEnum :: struct {
-    elemCount   : u16le,
-    props       : CvtlStruct_Prop,
-    underlyType : TypeIndex,
-    fieldList   : TypeIndex, // type index into the LF_FIELD descriptor list
+    using _base : struct #packed {
+        elemCount   : u16le,
+        props       : CvtlStruct_Prop,
+        underlyType : TypeIndex,
+        fieldList   : TypeIndex, // type index into the LF_FIELD descriptor list
+    },
     name        : string,
-}
-read_cvtlEnum:: proc(this: ^BlocksReader) -> (ret: CvtlEnum) {
-    ret.elemCount = readv(this, u16le)
-    ret.props = readv(this, CvtlStruct_Prop)
-    ret.underlyType = readv(this, TypeIndex)
-    ret.fieldList = readv(this, TypeIndex)
-    ret.name = read_length_prefixed_name(this)
-    return
 }
 
 CvtField_Attribute :: enum u16le {
