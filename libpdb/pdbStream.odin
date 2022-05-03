@@ -6,10 +6,10 @@ import "core:strings"
 PdbStream_Index :: 1
 
 PdbStreamHeader :: struct #packed {
-    version: PdbStreamVersion,
-    signature: u32le,
-    age: u32le,
-    guid: u128le,
+    version     : PdbStreamVersion,
+    signature   : u32le,
+    age         : u32le,
+    guid        : u128le,
 }
 
 PdbStreamVersion :: enum u32le {

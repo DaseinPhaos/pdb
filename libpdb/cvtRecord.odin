@@ -305,9 +305,9 @@ read_cvtlMfuncId ::proc(this: ^BlocksReader) -> (ret: CvtlMfuncId) {
 //====type record for LF_UDT_MOD_SRC_LINE
 CvtlUdtModSrcLine :: struct #packed {
     udtType : TypeIndex,
-    src : CvItemId, // index into string table where src filename is saved
-    line: u32le,
-    imod: u16le, // module that contributes this udt def
+    src     : CvItemId, // index into string table of src filename
+    line    : u32le,
+    imod    : u16le, // module that contributes this udt def
 }
 //====type record for LF_BUILDINFO
 CvtlBuildInfo :: struct {
@@ -412,7 +412,7 @@ read_cvtfMember :: proc(this: ^BlocksReader) -> (ret: CvtField_Member) {
 CvtField_Enumerate :: struct {
     attr : CvtField_Attribute,
     value: uint, //? overflow?
-    name: string,
+    name : string,
 }
 read_cvtfEnumerate :: proc(this: ^BlocksReader) -> (ret: CvtField_Enumerate) {
     ret.attr = readv(this, CvtField_Attribute)
@@ -427,7 +427,7 @@ CvtlArray :: struct {
     elemType : TypeIndex,
     idxType  : TypeIndex,
     size     : uint,
-    name      : string,
+    name     : string,
 }
 read_cvtlArray :: proc(this: ^BlocksReader) -> (ret: CvtlArray) {
     ret.elemType = readv(this, TypeIndex)
@@ -551,21 +551,4 @@ CvtMethodProp :: enum u8 {
     Intro          = 0x04,
     PureVirt       = 0x05,
     PureIntro      = 0x06,
-}
-
-read_length_prefixed_name :: proc(this: ^BlocksReader) -> (ret: string) {
-    //nameLen := cast(int)readv(this, u8) //? this is a fucking lie?
-    nameLen :int = 0
-    for i in this.offset..<this.size {
-        if get_byte(this, i) == 0 do break
-        nameLen+=1
-    }
-    defer this.offset+=1 // eat trailing \0
-    if nameLen == 0 do return ""
-    //nameLen := cast(int)read_int_record(this)
-    a := make([]byte, nameLen)
-    for i in 0..<nameLen {
-        a[i] = readv(this, byte)
-    }
-    return strings.string_from_ptr(&a[0], nameLen)
 }

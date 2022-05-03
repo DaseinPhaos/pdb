@@ -44,9 +44,12 @@ main ::proc() {
     
     tpiStreamReader := get_stream_reader(&streamDir, TpiStream_Index)
     tpiStream, _ := parse_tpi_stream(&tpiStreamReader, &streamDir)
-    fmt.println(tpiStream)
+    //fmt.println(tpiStream)
 
     ipiStreamReader := get_stream_reader(&streamDir, IpiStream_Index)
     ipiStream, _ := parse_tpi_stream(&ipiStreamReader, &streamDir)
-    fmt.println(ipiStream)
+    //fmt.println(ipiStream)
+
+    dbiStreamReader := get_stream_reader(&streamDir, DbiStream_Index)
+    dbiStream := parse_dbi_stream(&dbiStreamReader)
 }

@@ -118,16 +118,48 @@ readv :: proc(using this: ^BlocksReader, $T: typeid) -> (ret: T) {
         assert(size == 0 || offset + tsize <= size, "block overflow")
         bii := offset /blockSize
         iib := offset - (bii * blockSize)
-        if iib + tsize <= blockSize {
-            ret = (cast(^T)&data[uint(indices[bii])*blockSize+iib])^
-        } else {
+        when true {
             pret := cast(^byte)&ret
-            for i in 0..<tsize {
-                mem.ptr_offset(pret, i)^ = get_byte(this, offset+i)
+            psrc := &data[uint(indices[bii])*blockSize+iib]
+            blockLeft := blockSize-iib
+            mem.copy_non_overlapping(pret, psrc, cast(int)min(tsize, blockLeft))
+            if tsize > blockLeft {
+                tsize -= blockLeft
+                assert(tsize <= blockSize, "when don't support reading a single struct across >2 blocks for now")
+                pret = mem.ptr_offset(pret, blockLeft)
+                psrc = &data[indices[bii+1]]
+                mem.copy_non_overlapping(pret, psrc, cast(int)tsize)
+            }
+        } else {
+            if iib + tsize <= blockSize {
+                ret = (cast(^T)&data[uint(indices[bii])*blockSize+iib])^
+            } else {
+                pret := cast(^byte)&ret
+                for i in 0..<tsize {
+                    mem.ptr_offset(pret, i)^ = get_byte(this, offset+i)
+                }
             }
         }
+        
         offset += tsize
         return
+}
+
+read_length_prefixed_name :: proc(this: ^BlocksReader) -> (ret: string) {
+    //nameLen := cast(int)readv(this, u8) //? this is a fucking lie?
+    nameLen :int = 0
+    for i in this.offset..<this.size {
+        if get_byte(this, i) == 0 do break
+        nameLen+=1
+    }
+    defer this.offset+=1 // eat trailing \0
+    if nameLen == 0 do return ""
+    //nameLen := cast(int)read_int_record(this)
+    a := make([]byte, nameLen)
+    for i in 0..<nameLen {
+        a[i] = readv(this, byte)
+    }
+    return strings.string_from_ptr(&a[0], nameLen)
 }
 
 @private

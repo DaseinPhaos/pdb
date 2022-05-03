@@ -6,16 +6,16 @@ TpiStream_Index :: 2
 IpiStream_Index :: 4
 
 TpiStreamHeader :: struct #packed {
-    version: TpiStreamVersion, // appears to always be v80
-    headerSize: u32le, // == sizeof(TpiStreamHeader)
-    typeIndexBegin: TypeIndex, // usually 0x1000(4096), type indices lower are usually reserved
-    typeIndexEnd: TypeIndex, // total number of type records = typeIndexEnd-typeIndexBegin
-    typeRecordBytes: u32le, // type record data size following the header
+    version             : TpiStreamVersion, // appears to always be v80
+    headerSize          : u32le, // == sizeof(TpiStreamHeader)
+    typeIndexBegin      : TypeIndex, // usually 0x1000(4096), type indices lower are usually reserved
+    typeIndexEnd        : TypeIndex, // total number of type records = typeIndexEnd-typeIndexBegin
+    typeRecordBytes     : u32le, // type record data size following the header
 
-    hashStreamIndex: i16le, // -1 means not present, usually always observed to be present
-    hashAuxStreamIndex: i16le, // unclear what for
-    hashKeySize: u32le, // usually 4 bytes
-    numHashBuckets: u32le, // number of buckets used to generate these hash values
+    hashStreamIndex     : i16le, // -1 means not present, usually always observed to be present
+    hashAuxStreamIndex  : i16le, // unclear what for
+    hashKeySize         : u32le, // usually 4 bytes
+    numHashBuckets      : u32le, // number of buckets used to generate these hash values
 
     // ?offset and size within the hash stream. HashBufferLength should == numTypeRecords * hashKeySize
     hashValueBufferOffset, hashValueBufferLength: i32le,
@@ -47,7 +47,7 @@ find_index_offset :: proc(using this: TpiIndexOffsetBuffer, ti : TypeIndex, tpiS
     if hi < 0 || buf[lo].ti > ti || buf[hi].ti < ti do return
     // ti in range, do a bisearch
     for lo <= hi {
-        log.debugf("Find block [%v, %v) for ti%v", lo,hi, ti)
+        //log.debugf("Find block [%v, %v) for ti%v", lo,hi, ti)
         mid := lo + ((hi-lo)>>1)
         mv := buf[mid].ti
         if mv == ti {
@@ -58,7 +58,7 @@ find_index_offset :: proc(using this: TpiIndexOffsetBuffer, ti : TypeIndex, tpiS
         else do lo = mid + 1
     }
     if lo > 0 do lo -= 1
-    log.debugf("Find block [%v, %v) for ti%v", lo,lo+1, ti)
+    //log.debugf("Find block [%v, %v) for ti%v", lo,lo+1, ti)
     // now a linear search from lo to high
     tIdx := buf[lo].ti
     tpiStream.offset = cast(uint)buf[lo].offset
@@ -68,7 +68,7 @@ find_index_offset :: proc(using this: TpiIndexOffsetBuffer, ti : TypeIndex, tpiS
         cvtHeader := readv(tpiStream, CvtRecordHeader)
         tpiStream.offset += cast(uint)cvtHeader.length - size_of(CvtRecordKind)
     }
-    log.debugf("Block offset: %v", tpiStream.offset)
+    //log.debugf("Block offset: %v", tpiStream.offset)
     return u32le(tpiStream.offset)
 }
 
@@ -76,7 +76,7 @@ parse_tpi_stream :: proc(this: ^BlocksReader, dir: ^StreamDirectory) -> (header:
     header = readv(this, TpiStreamHeader)
     assert(header.headerSize == size_of(TpiStreamHeader), "Incorrect header size, mulfunctional stream")
     if header.version != .V80 {
-        log.warnf("unrecoginized streamVersion: %v", header.version)
+        log.warnf("unrecoginized tpiVersion: %v", header.version)
     }
 
     if header.hashStreamIndex >= 0 {
@@ -93,7 +93,7 @@ parse_tpi_stream :: proc(this: ^BlocksReader, dir: ^StreamDirectory) -> (header:
         tiob.buf = make([]TpiIndexOffsetPair, 1)
         tiob.buf[0] = TpiIndexOffsetPair{ti = header.typeIndexBegin}
     }
-    log.debug(tiob)
+    //log.debug(tiob)
 
     // context.logger.lowest_level = .Warning
     // for this.offset < this.size {
@@ -111,7 +111,7 @@ parse_tpi_stream :: proc(this: ^BlocksReader, dir: ^StreamDirectory) -> (header:
         } else {
             this.offset = uint(tOffset)
             cvtHeader := readv(this, CvtRecordHeader)
-            log.debug(cvtHeader.kind)
+            //log.debug(cvtHeader.kind)
             baseOffset := this.offset
             inspect_cvt(this, cvtHeader, baseOffset)
         }
