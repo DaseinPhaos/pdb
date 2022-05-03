@@ -64,19 +64,26 @@ parse_mod_stream :: proc(this: ^BlocksReader, modi: ^DbiModInfo) {
                         log.debugf("\t%v", column)
                     }
                 }
-                
+            }
+            case .FileChecksums: {
+                endOffset := baseOffset + uint(ssh.length)
+                defer assert(this.offset == endOffset)
+                for this.offset < endOffset {
+                    checksumHdr := readv(this, CvDbgFileChecksumHeader)
+                    this.offset += uint(checksumHdr.checksumSize)
+                    // align to 4-byte boundary
+                    this.offset = (this.offset + 3) & ~uint(3)
+                    log.debugf("%v", checksumHdr)
+                }
             }
             case: log.warnf("Unhandled subsection:%v, len:%v", ssh.subsectionType, ssh.length)
             }
-            
         }
     }
 }
 
 
 // SubsectionHeader->Subsection from kind to stuff
-
-
 CvDbgSubsectionHeader :: struct #packed {
     subsectionType  : CvDbgSubsectionType,
     length          : u32le,
@@ -156,5 +163,15 @@ CvDbgInlineeSrcLineEx :: struct {// TODO: read this
     extraFileIds: []u32le,
 }
 
-// TODO: StringTable, FileChecksums, FrameData, CrossScopeImports, CrossScopeExports, IlLines etc
+// File checksum subsection: []CvDbgFileChecksumHeader(variable length depending on checksumSize and 4byte alignment)
+CvDbgFileChecksumHeader :: struct #packed {
+    nameOffset  : u32le, // name ref into the global name table
+    checksumSize: u8,
+    checksumKind: CvDbgFileChecksumKind,
+    // then follows the checksum value buffer of len checksumSize
+    // then align to 4byte boundary to the next header
+}
+CvDbgFileChecksumKind :: enum u8 {none, md5, sha1, sha256, }
+
+// TODO: StringTable, FrameData, CrossScopeImports, CrossScopeExports etc
 
