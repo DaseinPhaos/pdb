@@ -19,7 +19,8 @@ main ::proc() {
 
     context.logger.lowest_level = .Debug
     log_proc :: proc(data: rawptr, level: log.Level, text: string, options: log.Options, location:= #caller_location) {
-        fmt.printf("[%v]%v: %v\n", level, location, text)
+        //fmt.printf("[%v]%v: %v\n", level, location, text)
+        fmt.printf("[%v]: %v\n", level, text)
     }
     context.logger.procedure = log_proc
     
@@ -33,8 +34,8 @@ main ::proc() {
     streamDir := read_stream_dir(&sb, file_content)
     //log.debugf("streamDir: %v\n", streamDir)
 
-    pdbStreamReader := get_stream_reader(&streamDir, PdbStream_Index)
-    pdbHeader, nameMap, pdbFeatures := parse_pdb_stream(&pdbStreamReader)
+    pdbSr := get_stream_reader(&streamDir, PdbStream_Index)
+    pdbHeader, nameMap, pdbFeatures := parse_pdb_stream(&pdbSr)
     for ns in nameMap.names {
         log.debug(ns)
     }
@@ -42,14 +43,47 @@ main ::proc() {
         log.debug(feature)
     }
     
-    tpiStreamReader := get_stream_reader(&streamDir, TpiStream_Index)
-    tpiStream, _ := parse_tpi_stream(&tpiStreamReader, &streamDir)
+    tpiSr := get_stream_reader(&streamDir, TpiStream_Index)
+    tpiStream, _ := parse_tpi_stream(&tpiSr, &streamDir)
     //fmt.println(tpiStream)
 
-    ipiStreamReader := get_stream_reader(&streamDir, IpiStream_Index)
-    ipiStream, _ := parse_tpi_stream(&ipiStreamReader, &streamDir)
+    ipiSr := get_stream_reader(&streamDir, IpiStream_Index)
+    ipiStream, _ := parse_tpi_stream(&ipiSr, &streamDir)
     //fmt.println(ipiStream)
 
-    dbiStreamReader := get_stream_reader(&streamDir, DbiStream_Index)
-    dbiStream := parse_dbi_stream(&dbiStreamReader)
+    // dbiSr := get_stream_reader(&streamDir, DbiStream_Index)
+    // dbiStream := parse_dbi_stream(&dbiSr)
+
+    {
+        modi := DbiModInfo{
+            _base = {
+            unused1 = 0, 
+            sectionContr = {
+                section = 1, 
+                padding1 = 0, 
+                offset = 0, 
+                size = 382214, 
+                chaaracteristics = 1615863840, 
+                moduleIndex = 0, 
+                padding2 = 0, 
+                dataCrc = 0, 
+                relocCrc = 0,
+            }, 
+            flags = .None, 
+            moduleSymStream = 13, 
+            symByteSize = 238320, 
+            c11ByteSize = 0, 
+            c13ByteSize = 96644, 
+            sourceFileCount = 45, 
+            padding = 0, 
+            unused2 = 0, 
+            sourceFileNameIndex = 0, 
+            pdbFilePathNameIndex = 0,
+            }, 
+            moduleName = "C:\\projects\\pdbReader\\build\\test.obj", 
+            objFileName = "C:\\projects\\pdbReader\\build\\test.obj",
+        }
+        modSr := get_stream_reader(&streamDir, uint(modi.moduleSymStream))
+        parse_mod_stream(&modSr, &modi)
+    }
 }

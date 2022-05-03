@@ -1,7 +1,12 @@
 //! CodeView Symbol Records, reference: https://llvm.org/docs/PDB/CodeViewSymbols.html
 package libpdb
-
+import "core:log"
 import "core:intrinsics"
+
+CvsRecordHeader :: struct #packed {
+    length  : u16le, // record length excluding this 2 byte field
+    kind    : CvsRecordKind,
+}
 
 CvsRecordKind :: enum u16le {
     //Public Symbols
@@ -37,12 +42,12 @@ CvsRecordKind :: enum u16le {
     S_ENVBLOCK          = 0x113d, // CvsEnvBlock
     S_LOCAL             = 0x113e, // CvsLocal
     S_DEFRANGE          = 0x113f,
-    S_DEFRANGE_SUBFIELD = 0x1140,
-    S_DEFRANGE_REGISTER = 0x1141,
-    S_DEFRANGE_FRAMEPOINTER_REL = 0x1142,
-    S_DEFRANGE_SUBFIELD_REGISTER = 0x1143,
-    S_DEFRANGE_FRAMEPOINTER_REL_FULL_SCOPE = 0x1144,
-    S_DEFRANGE_REGISTER_REL = 0x1145,
+    S_DEFRANGE_SUBFIELD = 0x1140, // CvsDefRangeSubfield
+    S_DEFRANGE_REGISTER = 0x1141, // CvsDefRangeRegister
+    S_DEFRANGE_FRAMEPOINTER_REL = 0x1142,  // CvsDefRangeFramePointerRel
+    S_DEFRANGE_SUBFIELD_REGISTER = 0x1143, // CvsDefRangeSubfieldRegister
+    S_DEFRANGE_FRAMEPOINTER_REL_FULL_SCOPE = 0x1144, // CvsDefRangeFramePointerRelFullScope
+    S_DEFRANGE_REGISTER_REL = 0x1145, // CvsDefRangeRegisterRel
     S_LPROC32_ID        = 0x1146, // CvsProc32
     S_GPROC32_ID        = 0x1147, // CvsProc32
     S_BUILDINFO         = 0x114c, // CvsBuildInfo
@@ -259,7 +264,7 @@ CvsCompile2 :: struct {
 CvsCompile2_Flags :: distinct u32le
 
 // S_UNAMESPACE
-CvsNamespace :: struct {
+CvsUnamespace :: struct {
     using _base : struct #packed {},
     name : string,
 }
@@ -451,4 +456,267 @@ CvsUDT :: struct {
     name       : string,
 }
 
-// TODO:S_DEFRANGE()
+// S_DEFRANGE
+CvsDefRange :: struct {
+    using _base : struct #packed {
+        program : u32le, // DIA program to evaluate the value of the symbol
+    },
+    using _rag  : CvsLvarAddrRangeAndGap,
+}
+
+// S_DEFRANGE_SUBFIELD
+CvsDefRangeSubfield :: struct {
+    using _base : struct #packed {
+        program : u32le, // DIA program to evaluate the value of the symbol
+        oParent : u32le, // offset in parent variable
+    },
+    using _rag  : CvsLvarAddrRangeAndGap,
+}
+
+// S_DEFRANGE_REGISTER
+CvsDefRangeRegister :: struct {
+    using _base : struct #packed {
+        reg     : u16le,
+        attr    : CvsRangeAttr,
+    },
+    using _rag  : CvsLvarAddrRangeAndGap,
+}
+
+// S_DEFRANGE_SUBFIELD_REGISTER
+CvsDefRangeSubfieldRegister :: struct {
+    using _base : struct #packed {
+        reg     : u16le,
+        attr    : CvsRangeAttr,
+        pOffset : u32le, // offset in parent variable, only lower 12 bits used
+    },
+    using _rag : CvsLvarAddrRangeAndGap,
+}
+
+// S_DEFRANGE_FRAMEPOINTER_REL
+CvsDefRangeFramePointerRel :: struct {
+    using _base : CvsDefRangeFramePointerRelFullScope,
+    using _rag : CvsLvarAddrRangeAndGap,
+}
+// S_DEFRANGE_FRAMEPOINTER_REL_FULL_SCOPE
+CvsDefRangeFramePointerRelFullScope :: struct #packed {
+    oFramePtr : u32le, // offset to frame pointer
+}
+
+// S_DEFRANGE_REGISTER_REL
+CvsDefRangeRegisterRel :: struct {
+    using _base : struct #packed {
+        baseReg     : u16le, // register to hold the base pointer
+        flags       : CvsDefRangeRegisterRelFlags,
+        baseOffset  : u32le, // offset to base pointer register
+    },
+    using _rag      : CvsLvarAddrRangeAndGap,
+}
+// TODO: methods to extract parent offset from this
+// ------------|---|-
+// offsetParent|pad|spilledUdtMember
+CvsDefRangeRegisterRelFlags :: distinct u16le
+
+read_with_trailing_rag :: #force_inline proc(this: ^BlocksReader, recLen: u16le, $T : typeid) -> (ret: T) 
+    where intrinsics.type_has_field(T, "_base"),
+          intrinsics.type_has_field(T, "_rag"), 
+          intrinsics.type_field_index_of(T, "_rag") == 1,
+          intrinsics.type_struct_field_count(T) == 2 {
+    ret._base = readv(this, type_of(ret._base))
+    ret._rag = read_cvsLvarAddrRangeAndGap(this, recLen, size_of(ret._base))
+    return
+}
+CvsRangeAttr :: enum u16le { none = 0, maybe = 1, }
+CvsLvarAddrRangeAndGap :: struct {
+    range : struct #packed {
+        offsetStart : u32le,
+        iSectStart  : u16le,
+        length      : u16le,
+    },
+    gaps            : []CvsLvarAddrGap,
+}
+CvsLvarAddrGap :: struct #packed {
+    relOffset : u16le,
+    length    : u16le,
+}
+read_cvsLvarAddrRangeAndGap :: proc (this: ^BlocksReader, recLen : u16le, headLen: int) -> (ret : CvsLvarAddrRangeAndGap) {
+    ret.range = readv(this, type_of(ret.range))
+    gapsSize := int(recLen) - size_of(CvsRecordKind) - headLen - size_of(ret.range)
+    gapsCount := gapsSize / size_of(CvsLvarAddrGap)
+    if gapsCount <= 0 do return
+    ret.gaps = make([]CvsLvarAddrGap, gapsCount)
+    for i in 0..<gapsCount {
+        ret.gaps[i] = readv(this, CvsLvarAddrGap)
+    }
+    return
+}
+
+inspect_cvs :: proc(this: ^BlocksReader, cvsHeader : CvsRecordHeader) {
+    switch  cvsHeader.kind {
+        case .S_PUB32: {
+            v := readv(this, CvsPub32)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_PROCREF:fallthrough
+        case .S_DATAREF:fallthrough
+        case .S_LPROCREF: {
+            v := readv(this, CvsRef2)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_OBJNAME: {
+            v := readv(this, CvsObjName)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_THUNK32: {
+            v := readv(this, CvsThunk32)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_LABEL32: {
+            v := readv(this, CvsLabel32)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_BPREL32: {
+            v := readv(this, CvsBPRel32)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_REGISTER: {
+            v := readv(this, CvsRegister)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_COMPILE3: {
+            v := readv(this, CvsCompile3)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_BUILDINFO: {
+            v := readv(this, CvsBuildInfo)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_LDATA32:fallthrough
+        case .S_GDATA32:fallthrough
+        case .S_LMANDATA:fallthrough
+        case .S_GMANDATA:fallthrough
+        case .S_LTHREAD32:fallthrough
+        case .S_GTHREAD32: {
+            v := readv(this, CvsData32)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_LOCAL: {
+            v := readv(this, CvsLocal)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_BLOCK32: {
+            v := readv(this, CvsBlocks32)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_FRAMEPROC: {
+            v := readv(this, CvsFrameProc)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_COMPILE2: {
+            v := readv(this, CvsCompile2)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_UNAMESPACE: {
+            v := readv(this, CvsUnamespace)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_TRAMPOLINE: {
+            v := readv(this, CvsTrampoline)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_SECTION: {
+            v := readv(this, CvsSection)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_COFFGROUP: {
+            v := readv(this, CvsCoffGroup)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_EXPORT: {
+            v := readv(this, CvsExport)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_CALLSITEINFO: {
+            v := readv(this, CvsCallsiteInfo)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_FRAMECOOKIE: {
+            v := readv(this, CvsFrameCookie)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_REGREL32: {
+            v := readv(this, CvsRegRel32)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_ENVBLOCK: {
+            v := readv(this, CvsEnvBlock)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_INLINESITE: {
+            v := readv(this, CvsInlineSite)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_FILESTATIC: {
+            v := readv(this, CvsFileStatic)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_CALLEES:fallthrough
+        case .S_CALLERS: {
+            v := readv(this, CvsFunctionList)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_HEAPALLOCSITE: {
+            v := readv(this, CvsHeapAllocSite)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_CONSTANT:fallthrough
+        case .S_MANCONSTANT: {
+            v := readv(this, CvsConstant)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_UDT: {
+            v := readv(this, CvsUDT)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_LPROC32:fallthrough
+        case .S_LPROC32_ID:fallthrough
+        case .S_LPROC32_DPC:fallthrough
+        case .S_LPROC32_DPC_ID:fallthrough
+        case .S_GPROC32:fallthrough
+        case .S_GPROC32_ID: {
+            v := readv(this, CvsProc32)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_INLINESITE_END:fallthrough
+        case .S_PROC_ID_END:fallthrough
+        case .S_END: log.debugf(".%v@[%v]", cvsHeader.kind, this.offset)
+        case .S_DEFRANGE: {
+            v := readv(this, cvsHeader.length, CvsDefRange)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_DEFRANGE_SUBFIELD: {
+            v := readv(this, cvsHeader.length, CvsDefRangeSubfield)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_DEFRANGE_REGISTER: {
+            v := readv(this, cvsHeader.length, CvsDefRangeRegister)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_DEFRANGE_REGISTER_REL: {
+            v := readv(this, cvsHeader.length, CvsDefRangeRegisterRel)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_DEFRANGE_SUBFIELD_REGISTER: {
+            v := readv(this, cvsHeader.length, CvsDefRangeSubfieldRegister)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_DEFRANGE_FRAMEPOINTER_REL: {
+            v := readv(this, cvsHeader.length, CvsDefRangeFramePointerRel)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case .S_DEFRANGE_FRAMEPOINTER_REL_FULL_SCOPE: {
+            v := readv(this, CvsDefRangeFramePointerRelFullScope)
+            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
+        }
+        case: log.warnf("Unhandled %v", cvsHeader.kind)
+    }
+}

@@ -95,32 +95,31 @@ parse_tpi_stream :: proc(this: ^BlocksReader, dir: ^StreamDirectory) -> (header:
     }
     //log.debug(tiob)
 
-    // context.logger.lowest_level = .Warning
-    // for this.offset < this.size {
-    //     cvtHeader := readv(this, CvtRecordHeader)
-    //     log.debug(cvtHeader.kind)
-    //     baseOffset := this.offset
-    //     inspect_cvt(this, cvtHeader, baseOffset)
-    //     this.offset = baseOffset+ uint(cvtHeader.length) - size_of(CvtRecordKind)
-    // }
-
-    {
-        tOffset := find_index_offset(tiob, 14529, this)
-        if tOffset == 0xffff_ffff {
-            log.warn("type not found")
-        } else {
-            this.offset = uint(tOffset)
-            cvtHeader := readv(this, CvtRecordHeader)
-            //log.debug(cvtHeader.kind)
-            baseOffset := this.offset
-            inspect_cvt(this, cvtHeader, baseOffset)
-        }
+    context.logger.lowest_level = .Warning
+    for this.offset < this.size {
+        cvtHeader := readv(this, CvtRecordHeader)
+        log.debug(cvtHeader.kind)
+        baseOffset := this.offset
+        inspect_cvt(this, cvtHeader)
+        this.offset = baseOffset+ uint(cvtHeader.length) - size_of(CvtRecordKind)
     }
+
+    // {
+    //     tOffset := find_index_offset(tiob, 14529, this)
+    //     if tOffset == 0xffff_ffff {
+    //         log.warn("type not found")
+    //     } else {
+    //         this.offset = uint(tOffset)
+    //         cvtHeader := readv(this, CvtRecordHeader)
+    //         //log.debug(cvtHeader.kind)
+    //         inspect_cvt(this, cvtHeader)
+    //     }
+    // }
 
     return
 }
 
-inspect_cvt :: proc(this: ^BlocksReader, cvtHeader : CvtRecordHeader, baseOffset: uint) {
+inspect_cvt :: proc(this: ^BlocksReader, cvtHeader : CvtRecordHeader) {
     #partial switch  cvtHeader.kind {
         case .LF_POINTER: {
             cvtPtr := readv(this, CvtlPointer)
@@ -186,7 +185,7 @@ inspect_cvt :: proc(this: ^BlocksReader, cvtHeader : CvtRecordHeader, baseOffset
             log.debug(args)
         }
         case .LF_FIELDLIST: {
-            endOffset := baseOffset+ uint(cvtHeader.length) - size_of(CvtRecordKind)
+            endOffset := this.offset + uint(cvtHeader.length) - size_of(CvtRecordKind)
             for this.offset < endOffset {
                 for ;this.offset<endOffset;this.offset+=1 {
                     if get_byte(this, this.offset) < u8(CvtRecordKind.LF_PAD0) {

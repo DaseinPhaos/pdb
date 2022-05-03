@@ -172,7 +172,7 @@ read_with_size_and_trailing_name :: #force_inline proc(this: ^BlocksReader, $T: 
     return
 }
 
-readv :: proc { read_packed, read_with_trailing_name, read_with_size_and_trailing_name, read_cvtlBuildInfo, read_cvtlUnion, read_cvtfArgList, read_cvtfBclass, read_cvtfVbclass, read_cvtfMember, read_cvtfEnumerate, read_dbiModInfo, read_dbiFileInfos, read_cvsFunctionList,}
+readv :: proc { read_packed, read_with_trailing_name, read_with_size_and_trailing_name, read_with_trailing_rag, read_cvtlBuildInfo, read_cvtlUnion, read_cvtfArgList, read_cvtfBclass, read_cvtfVbclass, read_cvtfMember, read_cvtfEnumerate, read_dbiModInfo, read_dbiFileInfos, read_cvsFunctionList,}
 
 read_length_prefixed_name :: proc(this: ^BlocksReader) -> (ret: string) {
     //nameLen := cast(int)readv(this, u8) //? this is a fucking lie?

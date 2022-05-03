@@ -192,13 +192,13 @@ DbiOptDbgHeaders :: struct #packed {
 parse_dbi_stream :: proc(this: ^BlocksReader) -> (header : DbiStreamHeader) {
     header = readv(this, DbiStreamHeader)
     if header.versionSignature != -1 {
-        log.warnf("unrecoginized dbiVersionSignature: %v", header.versionSignature)
+        log.warnf("unrecognized dbiVersionSignature: %v", header.versionSignature)
     }
     if header.versionHeader != .V70 {
-        log.warnf("unrecoginized dbiVersionHeader: %v", header.versionHeader)
+        log.warnf("unrecognized dbiVersionHeader: %v", header.versionHeader)
     }
     if !_is_new_version_format(header.buildNumber) {
-        log.warnf("unrecoginized old dbiBuildNumber: %v", header.buildNumber)
+        log.warnf("unrecognized old dbiBuildNumber: %v", header.buildNumber)
     }
 
     log.debug(header)
