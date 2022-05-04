@@ -1,6 +1,8 @@
 //! reference: https://docs.microsoft.com/en-us/windows/win32/debug/pe-format
 package libpdb
 import "core:log"
+import "core:fmt"
+import "core:io"
 
 PE_Signature_OffsetIdxPos :: 0x3c // ?u32le?
 PE_Signature :u32le: 0x0000_4550 //PE\0\0
@@ -154,7 +156,7 @@ PEOptHdr_DataDirectory :: struct #packed { rva, size: u32le, }
 
 // section table directly follows all the headers above, numbers given by coffHdr.numSecs
 PESectionHeader :: struct #packed {
-    name    : u64le, // TODO: formatting null-padded string using fmt.set_user_formatter, or slash+decimal ascii number as offset into string table
+    name    : PESectionName, // formatting string using fmt.register_user_formatter, or slash+decimal ascii number as offset into string table
     vSize   : u32le, // size of section when loaded into memory
     vAddr   : u32le, // address of section relative to image base when loaded (for exe)
     rawSize : u32le, // size of raw data on disk
@@ -165,6 +167,23 @@ PESectionHeader :: struct #packed {
     lineNum : u16le, // number of line-number entries
     flags   : PESectionFlags,
 }
+PESectionName :: struct #raw_union {
+    buf : [8]byte,
+    num : u64le,
+}
+peSectionName_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
+    n := arg.(PESectionName)
+    io.write_rune(fi.writer, '"', &fi.n)
+    for i in 0..<len(n.buf) {
+        if n.buf[i] == 0 do break
+        io.write_rune(fi.writer, rune(n.buf[i]), &fi.n)
+    }
+    io.write_string(fi.writer, "\"(0x", &fi.n)
+    io.write_u64(fi.writer, u64(n.num), 16, &fi.n)
+    io.write_rune(fi.writer, ')', &fi.n)
+    return true
+}
+
 PESectionFlags :: enum u32le {
     None = 0,
     NoPad = 0x0000_0008, // obsolete, replaced by Align1

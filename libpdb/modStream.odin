@@ -53,16 +53,16 @@ parse_mod_stream :: proc(this: ^BlocksReader, modi: ^DbiModInfo, namesStream: ^B
         {
             defer this.offset = c13StreamStart
             for this.offset < c13StreamEnd {
-            ssh := readv(this, CvDbgSubsectionHeader)
-            baseOffset := this.offset
-            endOffset  := baseOffset + uint(ssh.length)
-            defer this.offset = endOffset
-            if ssh.subsectionType == .FileChecksums {
-                fileChecksumFound  = true
-                fileChecksumOffset = this.offset
-                break
+                ssh := readv(this, CvDbgSubsectionHeader)
+                baseOffset := this.offset
+                endOffset  := baseOffset + uint(ssh.length)
+                defer this.offset = endOffset
+                if ssh.subsectionType == .FileChecksums {
+                    fileChecksumFound  = true
+                    fileChecksumOffset = this.offset
+                    break
+                }
             }
-        }
         }
         
         for this.offset < c13StreamEnd {
