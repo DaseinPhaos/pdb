@@ -91,6 +91,16 @@ BlocksReader :: struct {
     offset : uint,
     size : uint,
 }
+_dummy_indices :[]u32le = {0,}
+make_dummy_reader :: proc(data: []byte) -> BlocksReader {
+    return BlocksReader{
+        data = data,
+        blockSize = len(data),
+        indices = _dummy_indices,
+        offset = 0,
+        size = len(data),
+    }
+}
 
 get_byte :: proc(using this: ^BlocksReader, at: uint) -> byte {
     bii := at / blockSize

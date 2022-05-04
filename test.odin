@@ -7,11 +7,9 @@ import "core:log"
 
 main ::proc() {
     //odin run test.odin -file -out:build\test.exe -debug -- .\build\test.pdb
-    //pdb_path := "H:/projects/pdbReader/build/test.pdb"
-    //pdb_path := "G:/repos/PDBDumpWV/PDBDumpWV/bin/Debug/PDBDumpWV.pdb"
-    pdb_path, _ := strings.replace_all(os.args[1], "\\", "/")
-    log.debugf("reading %v\n", pdb_path)
-    file_content, read_ok := os.read_entire_file(pdb_path)
+    path, _ := strings.replace_all(os.args[1], "\\", "/")
+    log.debugf("reading %v\n", path)
+    file_content, read_ok := os.read_entire_file(path)
     if !read_ok {
         log.errorf("Unable to open file")
         return
@@ -29,6 +27,22 @@ main ::proc() {
         //fmt.printf("[%v]: %v\n", level, text)
     }
     context.logger.procedure = log_proc
+
+    if strings.has_suffix(path, "pdb") {
+        test_pdb(file_content)
+    } else {
+        test_exe(file_content)
+    }
+
+}
+
+test_exe :: proc(file_content: []byte) {
+    using libpdb
+    reader := make_dummy_reader(file_content)
+    parse_exe_file(&reader)
+}
+
+test_pdb :: proc(file_content : []byte) {
     
     using libpdb
     sb: SuperBlock
