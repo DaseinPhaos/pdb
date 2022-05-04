@@ -247,8 +247,8 @@ parse_dbi_stream :: proc(this: ^BlocksReader) -> (header : DbiStreamHeader) {
     { // file info substream
         substreamEnd := uint(header.srcInfoSize) + this.offset
         defer this.offset = substreamEnd // because...
-        dbiFileInfos := readv(this, DbiFileInfos)
-        log.debug(dbiFileInfos)
+        /*dbiFileInfos := */readv(this, DbiFileInfos)
+        //log.debug(dbiFileInfos)
     }
     this.offset += uint(header.typeServerMapSize)
     this.offset += uint(header.ecSubstreamSize)

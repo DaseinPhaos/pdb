@@ -1,6 +1,7 @@
 //! Module Information Stream, ref: https://llvm.org/docs/PDB/ModiStream.html https://github.com/willglynn/pdb/tree/master/src/modi
 package libpdb
 import "core:log"
+import "core:strings"
 
 ModStreamHeader :: struct #packed {
     signature : ModStreamSignature, // == C13
@@ -13,24 +14,31 @@ ModStreamHeader :: struct #packed {
 
 ModStreamSignature :: enum u32le {C7 = 1, C11 = 2, C13 = 4,}
 
-parse_mod_stream :: proc(this: ^BlocksReader, modi: ^DbiModInfo) {
+parse_mod_stream :: proc(this: ^BlocksReader, modi: ^DbiModInfo, namesStream: ^BlocksReader) {
     header := readv(this, ModStreamHeader)
     if header.signature != .C13 {
         log.warnf("unrecognized mod stream signature:%v. only support C13", header.signature)
         assert(false, "unrecognized mod stream signature")
     }
     
+    procToFind  := "libpdb.read_stream_dir"
+    procInfo    : Maybe(CvsProc32)
     { // symbol substream
         symSubStreamSize := modi.symByteSize - 4
         symSubStreamEnd := this.offset + uint(symSubStreamSize)
         defer this.offset = symSubStreamEnd
-        context.logger.lowest_level = .Warning
+        //context.logger.lowest_level = .Warning
         for this.offset < symSubStreamEnd {
-            cvsHeader := readv(this, CvsRecordHeader)
-            //log.debug(cvsHeader.kind)
+            cvsHeader  := readv(this, CvsRecordHeader)
             baseOffset := this.offset
-            inspect_cvs(this, cvsHeader)
-            this.offset = baseOffset+ uint(cvsHeader.length) - size_of(CvsRecordKind)
+            defer this.offset = baseOffset+ uint(cvsHeader.length) - size_of(CvsRecordKind)
+            if procInfo != nil do continue
+            cvs := parse_cvs(this, cvsHeader)
+            if cvsProc, ok := cvs.value.(CvsProc32); ok {
+                if strings.compare(procToFind, cvsProc.name) == 0 {
+                    procInfo = cvsProc
+                }
+            }
         }
     }
 
@@ -39,23 +47,60 @@ parse_mod_stream :: proc(this: ^BlocksReader, modi: ^DbiModInfo) {
         this.offset += uint(modi.c11ByteSize)
         c13StreamStart  := this.offset
         c13StreamEnd    := this.offset + uint(modi.c13ByteSize)
+        // pass 1: find FileChecksumSection
+        fileChecksumOffset := this.offset
+        fileChecksumFound  := false
+        {
+            defer this.offset = c13StreamStart
+            for this.offset < c13StreamEnd {
+            ssh := readv(this, CvDbgSubsectionHeader)
+            baseOffset := this.offset
+            endOffset  := baseOffset + uint(ssh.length)
+            defer this.offset = endOffset
+            if ssh.subsectionType == .FileChecksums {
+                fileChecksumFound  = true
+                fileChecksumOffset = this.offset
+                break
+            }
+        }
+        }
+        
         for this.offset < c13StreamEnd {
             ssh := readv(this, CvDbgSubsectionHeader)
             baseOffset := this.offset
-            defer this.offset = baseOffset + uint(ssh.length)
+            endOffset  := baseOffset + uint(ssh.length)
+            defer this.offset = endOffset
             #partial switch ssh.subsectionType {
             case .Lines: {
-                defer assert(this.offset == baseOffset + uint(ssh.length))
+                defer assert(this.offset == endOffset)
                 ssLines := readv(this, CvDbgssLinesHeader)
                 lineBlock := readv(this, CvDbgLinesFileBlockHeader)
-                log.debugf("[%v:%v]%v, %v",baseOffset, baseOffset + uint(ssh.length), ssLines, lineBlock)
-                //linesBuf := make([]CvDbgLinePacked, lineBlock.nLines)
+                log.debugf("[%v:%v]%v, %v",baseOffset, endOffset, ssLines, lineBlock)
+                if fileChecksumFound {
+                    curOffset := this.offset
+                    defer this.offset = curOffset
+                    // look for file checksum info
+                    this.offset = uint(lineBlock.offFile) + fileChecksumOffset
+                    checksumHdr := readv(this, CvDbgFileChecksumHeader)
+                    namesStream.offset = NamesStream_StartOffset + uint(checksumHdr.nameOffset)
+                    filename := read_length_prefixed_name(namesStream)
+                    log.debugf("\tassociated fileChecksum: %v, filename: %v", checksumHdr, filename)
+                    if procInfoV, ok := procInfo.?; ok && procInfoV.offset == ssLines.offset && procInfoV.seg == ssLines.seg {
+                        log.warnf("\tFLineFound for %v", procInfoV.name)
+                    }
+                }
                 for i in 0..<lineBlock.nLines {
                     line := readv(this, CvDbgLinePacked)
                     lns, lne, isStatement := unpack_lineFlag(line.flags)
-                    log.debugf("\t[%v:%v, %v]%v", lns, lne, isStatement, line)
+                    log.debugf("\t#%v[%v:%v, %v]%v", this.offset, lns, lne, isStatement, line)
                 }
-                //log.debugf("\t[%v]:%v", this.offset, lineBlock)
+                
+                if ssLines.flags != .hasColumns {
+                    if endOffset - this.offset == size_of(CvDbgColumn)  * uint(lineBlock.nLines) {
+                        log.warn("Flag indicates no column info, but infered from block length we assume column info anyway")
+                        ssLines.flags = .hasColumns
+                    }
+                }
                 //this.offset += uint(lineBlock.size) - size_of(CvDbgLinesFileBlockHeader)
                 //log.debugf("\t[:%v]", this.offset)
                 if ssLines.flags == .hasColumns {
@@ -64,9 +109,9 @@ parse_mod_stream :: proc(this: ^BlocksReader, modi: ^DbiModInfo) {
                         log.debugf("\t%v", column)
                     }
                 }
+                
             }
             case .FileChecksums: {
-                endOffset := baseOffset + uint(ssh.length)
                 defer assert(this.offset == endOffset)
                 for this.offset < endOffset {
                     checksumHdr := readv(this, CvDbgFileChecksumHeader)
@@ -119,13 +164,13 @@ CvDbgssLinesFlags :: enum u16le { none, hasColumns= 0x0001, }
 
 // follows by []CvDbgLinePacked and []CvDbgColumn, if hasColumns
 CvDbgLinesFileBlockHeader :: struct #packed {
-    offFile : u32le, // offset of the file checksum in the file checksums debug subsection
+    offFile : u32le, // offset of the file checksum in the file checksums debug subsection (after reading header)
     nLines  : u32le, // number of lines. if hasColumns, then same number of column entries with follow the line entries buffer
     size    : u32le, // total block size
 }
 
 CvDbgLinePacked :: struct #packed {
-    offset : u32le, // to start of code bytes for line number
+    offset : u32le, // ?to start of code bytes for line number
     flags  : CvDbgLinePackedFlags,
 }
 //1       +31|(7)                   +24|(24)        +0
@@ -165,7 +210,7 @@ CvDbgInlineeSrcLineEx :: struct {// TODO: read this
 
 // File checksum subsection: []CvDbgFileChecksumHeader(variable length depending on checksumSize and 4byte alignment)
 CvDbgFileChecksumHeader :: struct #packed {
-    nameOffset  : u32le, // name ref into the global name table
+    nameOffset  : u32le, // name ref into the global name table(after reading header)
     checksumSize: u8,
     checksumKind: CvDbgFileChecksumKind,
     // then follows the checksum value buffer of len checksumSize

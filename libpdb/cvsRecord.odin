@@ -71,6 +71,7 @@ CvsRecordKind :: enum u16le {
     S_MANCONSTANT       = 0x112d, // CvsConstant
 }
 
+CvsEnd      :: struct #packed {}
 // S_PUB32
 CvsPub32 :: struct {
     using _base : struct #packed {
@@ -550,173 +551,113 @@ read_cvsLvarAddrRangeAndGap :: proc (this: ^BlocksReader, recLen : u16le, headLe
     return
 }
 
-inspect_cvs :: proc(this: ^BlocksReader, cvsHeader : CvsRecordHeader) {
+CodeViewSymbol :: struct {
+    kind  : CvsRecordKind,
+    value : union {CvsPub32, CvsRef2, CvsObjName, CvsThunk32,CvsLabel32, CvsBPRel32, CvsRegister, CvsCompile3, CvsBuildInfo, CvsData32, CvsLocal, CvsBlocks32, CvsFrameProc, CvsCompile2, CvsUnamespace, CvsTrampoline, CvsSection, CvsCoffGroup, CvsExport, CvsCallsiteInfo, CvsFrameCookie, CvsRegRel32, CvsEnvBlock, CvsInlineSite, CvsFileStatic,CvsFunctionList,  CvsHeapAllocSite, CvsConstant, CvsUDT, CvsProc32, CvsEnd, CvsDefRange, CvsDefRangeSubfield, CvsDefRangeRegister, CvsDefRangeRegisterRel, CvsDefRangeSubfieldRegister, CvsDefRangeFramePointerRel, CvsDefRangeFramePointerRelFullScope, },
+}
+
+parse_cvs :: proc(this: ^BlocksReader, cvsHeader : CvsRecordHeader) -> (v: CodeViewSymbol) {
+    v.kind = cvsHeader.kind
     switch  cvsHeader.kind {
-        case .S_PUB32: {
-            v := readv(this, CvsPub32)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_PROCREF:fallthrough
-        case .S_DATAREF:fallthrough
-        case .S_LPROCREF: {
-            v := readv(this, CvsRef2)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_OBJNAME: {
-            v := readv(this, CvsObjName)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_THUNK32: {
-            v := readv(this, CvsThunk32)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_LABEL32: {
-            v := readv(this, CvsLabel32)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_BPREL32: {
-            v := readv(this, CvsBPRel32)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_REGISTER: {
-            v := readv(this, CvsRegister)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_COMPILE3: {
-            v := readv(this, CvsCompile3)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_BUILDINFO: {
-            v := readv(this, CvsBuildInfo)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_LDATA32:fallthrough
-        case .S_GDATA32:fallthrough
-        case .S_LMANDATA:fallthrough
-        case .S_GMANDATA:fallthrough
-        case .S_LTHREAD32:fallthrough
-        case .S_GTHREAD32: {
-            v := readv(this, CvsData32)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_LOCAL: {
-            v := readv(this, CvsLocal)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_BLOCK32: {
-            v := readv(this, CvsBlocks32)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_FRAMEPROC: {
-            v := readv(this, CvsFrameProc)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_COMPILE2: {
-            v := readv(this, CvsCompile2)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_UNAMESPACE: {
-            v := readv(this, CvsUnamespace)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_TRAMPOLINE: {
-            v := readv(this, CvsTrampoline)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_SECTION: {
-            v := readv(this, CvsSection)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_COFFGROUP: {
-            v := readv(this, CvsCoffGroup)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_EXPORT: {
-            v := readv(this, CvsExport)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_CALLSITEINFO: {
-            v := readv(this, CvsCallsiteInfo)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_FRAMECOOKIE: {
-            v := readv(this, CvsFrameCookie)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_REGREL32: {
-            v := readv(this, CvsRegRel32)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_ENVBLOCK: {
-            v := readv(this, CvsEnvBlock)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_INLINESITE: {
-            v := readv(this, CvsInlineSite)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_FILESTATIC: {
-            v := readv(this, CvsFileStatic)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_CALLEES:fallthrough
-        case .S_CALLERS: {
-            v := readv(this, CvsFunctionList)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_HEAPALLOCSITE: {
-            v := readv(this, CvsHeapAllocSite)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_CONSTANT:fallthrough
-        case .S_MANCONSTANT: {
-            v := readv(this, CvsConstant)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_UDT: {
-            v := readv(this, CvsUDT)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_LPROC32:fallthrough
-        case .S_LPROC32_ID:fallthrough
-        case .S_LPROC32_DPC:fallthrough
-        case .S_LPROC32_DPC_ID:fallthrough
-        case .S_GPROC32:fallthrough
-        case .S_GPROC32_ID: {
-            v := readv(this, CvsProc32)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_INLINESITE_END:fallthrough
-        case .S_PROC_ID_END:fallthrough
-        case .S_END: log.debugf(".%v@[%v]", cvsHeader.kind, this.offset)
-        case .S_DEFRANGE: {
-            v := readv(this, cvsHeader.length, CvsDefRange)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_DEFRANGE_SUBFIELD: {
-            v := readv(this, cvsHeader.length, CvsDefRangeSubfield)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_DEFRANGE_REGISTER: {
-            v := readv(this, cvsHeader.length, CvsDefRangeRegister)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_DEFRANGE_REGISTER_REL: {
-            v := readv(this, cvsHeader.length, CvsDefRangeRegisterRel)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_DEFRANGE_SUBFIELD_REGISTER: {
-            v := readv(this, cvsHeader.length, CvsDefRangeSubfieldRegister)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_DEFRANGE_FRAMEPOINTER_REL: {
-            v := readv(this, cvsHeader.length, CvsDefRangeFramePointerRel)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case .S_DEFRANGE_FRAMEPOINTER_REL_FULL_SCOPE: {
-            v := readv(this, CvsDefRangeFramePointerRelFullScope)
-            log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, v)
-        }
-        case: log.warnf("Unhandled %v", cvsHeader.kind)
+    case .S_PUB32:
+        v.value = readv(this, CvsPub32)
+    case .S_PROCREF:fallthrough
+    case .S_DATAREF:fallthrough
+    case .S_LPROCREF:
+        v.value = readv(this, CvsRef2)
+    case .S_OBJNAME:
+        v.value = readv(this, CvsObjName)
+    case .S_THUNK32:
+        v.value = readv(this, CvsThunk32)
+    case .S_LABEL32:
+        v.value = readv(this, CvsLabel32)
+    case .S_BPREL32:
+        v.value = readv(this, CvsBPRel32)
+    case .S_REGISTER:
+        v.value = readv(this, CvsRegister)
+    case .S_COMPILE3:
+        v.value = readv(this, CvsCompile3)
+    case .S_BUILDINFO:
+        v.value = readv(this, CvsBuildInfo)
+    case .S_LDATA32:fallthrough
+    case .S_GDATA32:fallthrough
+    case .S_LMANDATA:fallthrough
+    case .S_GMANDATA:fallthrough
+    case .S_LTHREAD32:fallthrough
+    case .S_GTHREAD32:
+        v.value = readv(this, CvsData32)
+    case .S_LOCAL:
+        v.value = readv(this, CvsLocal)
+    case .S_BLOCK32:
+        v.value = readv(this, CvsBlocks32)
+    case .S_FRAMEPROC:
+        v.value = readv(this, CvsFrameProc)
+    case .S_COMPILE2:
+        v.value = readv(this, CvsCompile2)
+    case .S_UNAMESPACE:
+        v.value = readv(this, CvsUnamespace)
+    case .S_TRAMPOLINE:
+        v.value = readv(this, CvsTrampoline)
+    case .S_SECTION:
+        v.value = readv(this, CvsSection)
+    case .S_COFFGROUP:
+        v.value = readv(this, CvsCoffGroup)
+    case .S_EXPORT:
+        v.value = readv(this, CvsExport)
+    case .S_CALLSITEINFO:
+        v.value = readv(this, CvsCallsiteInfo)
+    case .S_FRAMECOOKIE:
+        v.value = readv(this, CvsFrameCookie)
+    case .S_REGREL32:
+        v.value = readv(this, CvsRegRel32)
+    case .S_ENVBLOCK:
+        v.value = readv(this, CvsEnvBlock)
+    case .S_INLINESITE:
+        v.value = readv(this, CvsInlineSite)
+    case .S_FILESTATIC:
+        v.value = readv(this, CvsFileStatic)
+    case .S_CALLEES:fallthrough
+    case .S_CALLERS:
+        v.value = readv(this, CvsFunctionList)
+    case .S_HEAPALLOCSITE:
+        v.value = readv(this, CvsHeapAllocSite)
+    case .S_CONSTANT:fallthrough
+    case .S_MANCONSTANT:
+        v.value = readv(this, CvsConstant)
+    case .S_UDT:
+        v.value = readv(this, CvsUDT)
+    case .S_LPROC32:fallthrough
+    case .S_LPROC32_ID:fallthrough
+    case .S_LPROC32_DPC:fallthrough
+    case .S_LPROC32_DPC_ID:fallthrough
+    case .S_GPROC32:fallthrough
+    case .S_GPROC32_ID:
+        v.value = readv(this, CvsProc32)
+    case .S_INLINESITE_END:fallthrough
+    case .S_PROC_ID_END:fallthrough
+    case .S_END:
+        v.value = CvsEnd{}
+    case .S_DEFRANGE:
+        v.value = readv(this, cvsHeader.length, CvsDefRange)
+    case .S_DEFRANGE_SUBFIELD:
+        v.value = readv(this, cvsHeader.length, CvsDefRangeSubfield)
+    case .S_DEFRANGE_REGISTER:
+        v.value = readv(this, cvsHeader.length, CvsDefRangeRegister)
+    case .S_DEFRANGE_REGISTER_REL:
+        v.value = readv(this, cvsHeader.length, CvsDefRangeRegisterRel)
+    case .S_DEFRANGE_SUBFIELD_REGISTER:
+        v.value = readv(this, cvsHeader.length, CvsDefRangeSubfieldRegister)
+    case .S_DEFRANGE_FRAMEPOINTER_REL:
+        v.value = readv(this, cvsHeader.length, CvsDefRangeFramePointerRel)
+    case .S_DEFRANGE_FRAMEPOINTER_REL_FULL_SCOPE:
+        v.value = readv(this, CvsDefRangeFramePointerRelFullScope)
+    case:
+        v.value = nil
     }
+    return
+}
+
+inspect_cvs :: proc(this: ^BlocksReader, cvsHeader : CvsRecordHeader) {
+    cvs := parse_cvs(this, cvsHeader)
+    log.debugf(".%v@[%v]: %v", cvsHeader.kind, this.offset, cvs.value)
 }

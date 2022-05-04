@@ -19,8 +19,14 @@ main ::proc() {
 
     context.logger.lowest_level = .Debug
     log_proc :: proc(data: rawptr, level: log.Level, text: string, options: log.Options, location:= #caller_location) {
+        #partial switch level {
+        case log.Level.Debug:
+            fmt.printf("[%v]: %v\n", level, text)
+        case:
+            fmt.printf("[%v]%v: %v\n", level, location, text)
+        }
         //fmt.printf("[%v]%v: %v\n", level, location, text)
-        fmt.printf("[%v]: %v\n", level, text)
+        //fmt.printf("[%v]: %v\n", level, text)
     }
     context.logger.procedure = log_proc
     
@@ -39,9 +45,9 @@ main ::proc() {
     for ns in nameMap.names {
         log.debug(ns)
     }
-    for feature in pdbFeatures {
-        log.debug(feature)
-    }
+    // for feature in pdbFeatures {
+    //     log.debug(feature)
+    // }
     
     tpiSr := get_stream_reader(&streamDir, TpiStream_Index)
     tpiStream, _ := parse_tpi_stream(&tpiSr, &streamDir)
@@ -51,18 +57,28 @@ main ::proc() {
     ipiStream, _ := parse_tpi_stream(&ipiSr, &streamDir)
     //fmt.println(ipiStream)
 
-    // dbiSr := get_stream_reader(&streamDir, DbiStream_Index)
-    // dbiStream := parse_dbi_stream(&dbiSr)
+    when false {
+        dbiSr := get_stream_reader(&streamDir, DbiStream_Index)
+        dbiStream := parse_dbi_stream(&dbiSr)
+    }
 
-    {
+    namesStreamIdx, namesStreamFound := find_named_stream(nameMap, "/names")
+    if !namesStreamFound {
+        log.warn("Names stream unfound")
+        return
+    }
+    namesSr := get_stream_reader(&streamDir, namesStreamIdx)
+    namesStreamHdr := parse_names_stream(&namesSr)
+
+    when true {
         modi := DbiModInfo{
             _base = {
             unused1 = 0, 
-            sectionContr = {
+            sectionContr = DbiSecContrEntry{
                 section = 1, 
                 padding1 = 0, 
                 offset = 0, 
-                size = 382214, 
+                size = 528566, 
                 chaaracteristics = 1615863840, 
                 moduleIndex = 0, 
                 padding2 = 0, 
@@ -71,19 +87,19 @@ main ::proc() {
             }, 
             flags = .None, 
             moduleSymStream = 13, 
-            symByteSize = 238320, 
+            symByteSize = 286364, 
             c11ByteSize = 0, 
-            c13ByteSize = 96644, 
-            sourceFileCount = 45, 
+            c13ByteSize = 115700, 
+            sourceFileCount = 47, 
             padding = 0, 
             unused2 = 0, 
             sourceFileNameIndex = 0, 
             pdbFilePathNameIndex = 0,
             }, 
-            moduleName = "C:\\projects\\pdbReader\\build\\test.obj", 
-            objFileName = "C:\\projects\\pdbReader\\build\\test.obj",
+            moduleName = "H:\\projects\\pdbReader\\build\\test.obj",
+            objFileName = "H:\\projects\\pdbReader\\build\\test.obj",
         }
-        modSr := get_stream_reader(&streamDir, uint(modi.moduleSymStream))
-        parse_mod_stream(&modSr, &modi)
+        modSr := get_stream_reader(&streamDir, u32le(modi.moduleSymStream))
+        parse_mod_stream(&modSr, &modi, &namesSr)
     }
 }

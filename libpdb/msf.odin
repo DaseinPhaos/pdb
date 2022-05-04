@@ -29,7 +29,7 @@ StreamDirectory :: struct {
     blockSize: u32le,
 }
 
-get_stream_reader :: #force_inline proc(using this: ^StreamDirectory, streamIdx : uint) -> BlocksReader {
+get_stream_reader :: #force_inline proc(using this: ^StreamDirectory, streamIdx : u32le) -> BlocksReader {
     return BlocksReader{
         data = data, blockSize = cast(uint)blockSize, indices = streamBlocks[streamIdx], size = cast(uint)streamSizes[streamIdx],
     }

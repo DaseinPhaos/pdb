@@ -28,6 +28,14 @@ PdbStreamVersion :: enum u32le {
 PdbNamedStreamMap :: struct {
     strBuf : []byte, names : []PdbNamedStream,
 }
+find_named_stream :: proc(using this: PdbNamedStreamMap, name: string) -> (streamIdx: u32le, found: bool) {
+    for ns in names {
+        if strings.compare(ns.name, name) == 0 {
+            return ns.streamIdx, true
+        }
+    }
+    return 0, false
+}
 
 PdbNamedStream :: struct {
     name : string, streamIdx : u32le,

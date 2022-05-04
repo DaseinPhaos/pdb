@@ -80,7 +80,7 @@ parse_tpi_stream :: proc(this: ^BlocksReader, dir: ^StreamDirectory) -> (header:
     }
 
     if header.hashStreamIndex >= 0 {
-        hashStream := get_stream_reader(dir, cast(uint)header.hashStreamIndex)
+        hashStream := get_stream_reader(dir, u32le(header.hashStreamIndex))
         iobLen := header.indexOffsetBufferLength / size_of(TpiIndexOffsetPair)
         tiob.buf = make([]TpiIndexOffsetPair, iobLen)
         hashStream.offset = uint(header.indexOffsetBufferOffset) //?
