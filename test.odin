@@ -1,3 +1,6 @@
+// TODO: find module based on imageBase in the PE file, such that it can be matched in the pdb file. /
+// TODO: codebase cleanup
+
 package mainp
 import "libpdb"
 import "core:fmt"
@@ -6,8 +9,8 @@ import "core:strings"
 import "core:log"
 
 main ::proc() {
-    //odin run test -debug -out:test\demo.exe
-    //odin run test.odin -file -out:build\test.exe -- .\test\demo.exe
+    //odin run test -debug -out:test\demo.exe > .\build\demo.log
+    //odin run test.odin -file -out:build\test.pdb -- .\test\demo.pdb
     //odin run test.odin -file -out:build\test.exe -debug -- .\build\test.pdb
     path, _ := strings.replace_all(os.args[1], "\\", "/")
     log.debugf("reading %v\n", path)
@@ -41,11 +44,11 @@ main ::proc() {
 
 test_find_proc :: proc(file_content: []byte) {
     using libpdb
-    callerRva := 57406
+    callerRva := 0xe5f9
     block0Offset := 4096
     callerOffsetInSec := callerRva - block0Offset
     callerSeg := 1
-    moduleToFind :: "C:\\repos\\pdbReader\\test\\demo.obj"
+    moduleToFind :: "H:\\projects\\pdbReader\\test\\demo.obj"
 
     // TODO: find module based on exe name
 
@@ -77,6 +80,7 @@ test_find_proc :: proc(file_content: []byte) {
     namesStreamHdr := parse_names_stream(&namesSr)
 
     if mod, ok := modFound.?; ok {
+        log.info(mod)
         modSr := get_stream_reader(&streamDir, u32le(mod.moduleSymStream))
         modHeader := readv(&modSr, ModStreamHeader)
 
@@ -117,8 +121,8 @@ test_find_proc :: proc(file_content: []byte) {
             defer modSr.offset = c13StreamStart
             for modSr.offset < c13StreamEnd {
                 ssh := readv(&modSr, CvDbgSubsectionHeader)
-                baseOffset := modSr.offset
-                endOffset  := baseOffset + uint(ssh.length)
+                endOffset := modSr.offset + uint(ssh.length)
+                //log.debugf("[%v:%v] %v", modSr.offset, endOffset, ssh)
                 defer modSr.offset = endOffset
                 if ssh.subsectionType == .FileChecksums {
                     fileChecksumFound  = true
@@ -154,7 +158,7 @@ test_find_proc :: proc(file_content: []byte) {
             }
             lastLeLine : CvDbgLinePacked
             lastLeLineIdx :u32le= 0
-            // TODO: return in a buffer that would be easier to work with
+            // TODO: return line and column buffer in a format that would be easier to work with
             callerOffsetFromProcBase := u32le(callerOffsetInSec - int(ppv.offset))
             for i in 0..<lineBlock.nLines {
                 line := readv(&modSr, CvDbgLinePacked)
@@ -162,8 +166,8 @@ test_find_proc :: proc(file_content: []byte) {
                     lastLeLine = line
                     lastLeLineIdx = i
                 }
-                //lns, lne, isStatement := unpack_lineFlag(line.flags)
-                //log.debugf("\t#%v[%v:%v, %v]%v", modSr.offset, lns, lne, isStatement, line)
+                lns, lne, isStatement := unpack_lineFlag(line.flags)
+                log.debugf("\t#%v[%v:%v, %v]%v", modSr.offset, lns, lne, isStatement, line)
             }
             lns, lne, isStatement := unpack_lineFlag(lastLeLine.flags)
             log.debugf("\tat [%v:%v, %v]%v", lns, lne, isStatement, lastLeLine)

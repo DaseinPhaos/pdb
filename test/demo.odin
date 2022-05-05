@@ -153,7 +153,9 @@ _ARM64_NT_CONTEXT :: struct {
 
 _imgBasePtr : rawptr
 main ::proc() {
+    fmt.print("stuff a")
     ep()
+    fmt.print("stuff b")
 }
 
 ep :: proc() {
@@ -161,7 +163,7 @@ ep :: proc() {
     entryPointAddr := cast(rawptr)main
     pDiff := intrinsics.ptr_sub(cast(^byte)entryPointAddr, cast(^byte)_imgBasePtr)
     fmt.printf("ImageBase: %p, main(): %p, diff: 0x%x[%d]\n", _imgBasePtr, entryPointAddr, pDiff, pDiff)
-    x := f0()
+    f0()
 }
 
 f0 ::proc() -> int {
@@ -185,7 +187,45 @@ f0 ::proc() -> int {
     fmt.printf("Prev Rip: oBase: %x(%v)\n", ctxPrev.Rip-fImgBase, ctxPrev.Rip-fImgBase)
     //fmt.printf("%v\n", fUnwindTable)
     fmt.printf("rtFuncPrev: %v\n", rtFuncPrev)
+    if (fImgBase & 0x1 == 0x1) {
+        return f1()
+    }
+    return f2()
+}
+
+f2 ::proc()-> int {
     return f1()
+}
+
+StackTrace :: struct {
+    progCounter : uint, // instruction pointer
+    imgBase     : uint,
+    funcBegin   : u32,
+    funcEnd     : u32,
+}
+StackTrace_Cap :: 16
+
+stack_walk :: #force_no_inline proc() -> (stacktraces: [StackTrace_Cap]StackTrace, count : u8) {
+    fImgBase : DWORD64
+    ctx : CONTEXT
+    RtlCaptureContext(&ctx)
+    handlerData : rawptr
+    establisherFrame : DWORD64
+    // skip current frame
+    rtFunc := RtlLookupFunctionEntry(ctx.Rip, &fImgBase, nil)
+    RtlVirtualUnwind(0, fImgBase, ctx.Rip, rtFunc, &ctx, &handlerData, &establisherFrame, nil)
+    
+    for count = 0; count < StackTrace_Cap; count+=1 {
+        rtFunc = RtlLookupFunctionEntry(ctx.Rip, &fImgBase, nil)
+        if rtFunc == nil do break
+        pst := &stacktraces[count]
+        pst.progCounter = cast(uint)ctx.Rip
+        pst.imgBase     = cast(uint)fImgBase
+        pst.funcBegin   = rtFunc.BeginAddress
+        pst.funcEnd     = rtFunc.EndAddress
+        RtlVirtualUnwind(0, fImgBase, ctx.Rip, rtFunc, &ctx, &handlerData, &establisherFrame, nil)
+    }
+    return
 }
 
 f1 ::proc() -> int {
@@ -197,6 +237,11 @@ f1 ::proc() -> int {
     for i in 0..<frameCaptured {
         baseOffset := intrinsics.ptr_sub(cast(^byte)backTrace[i], cast(^byte)_imgBasePtr)
         fmt.printf("%p, %x[%d]\n", backTrace[i], baseOffset, baseOffset)
+    }
+    stacktraces, strackTracesCount := stack_walk()
+    for i in 0..<frameCaptured {
+        baseOffset := stacktraces[i].progCounter - stacktraces[i].imgBase
+        fmt.printf("%X:%X offset: %x(0d%d), func[%x-%x]\n", stacktraces[i].progCounter,stacktraces[i].imgBase, baseOffset, baseOffset, stacktraces[i].funcBegin, stacktraces[i].funcEnd)
     }
     return cast(int)frameCaptured
 }

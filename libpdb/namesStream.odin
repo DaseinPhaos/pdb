@@ -16,8 +16,8 @@ parse_names_stream :: proc(this: ^BlocksReader) -> (header: NamesStreamHeader) {
     if header.magic != NamesStream_HeaderMagic {
         log.warnf("Unrecognized magic 0x%x for pdbNaming table..", header.magic)
     }
-    if NamesStream_StartOffset + uint(header.size) < this.size {
-        log.warn("data buffer not big enough")
+    if NamesStream_StartOffset + uint(header.size) > this.size {
+        log.warnf("data buffer not big enough, should be %v but was %v", NamesStream_StartOffset + uint(header.size), this.size)
     }
     return
 }
