@@ -28,27 +28,32 @@ StreamDirectory :: struct {
     data: []byte, 
     blockSize: u32le,
 }
+MsfStreamIdx :: distinct u16le
+MsfStreamIdx_Invalid : MsfStreamIdx : 0xffff
+stream_idx_valid ::#force_inline proc(idx: MsfStreamIdx) -> bool {return idx < MsfStreamIdx_Invalid}
 
-get_stream_reader :: #force_inline proc(using this: ^StreamDirectory, streamIdx : u32le) -> BlocksReader {
+get_stream_reader :: #force_inline proc(using this: ^StreamDirectory, streamIdx : MsfStreamIdx) -> BlocksReader {
+    assert(stream_idx_valid(streamIdx))
     return BlocksReader{
         data = data, blockSize = cast(uint)blockSize, indices = streamBlocks[streamIdx], size = cast(uint)streamSizes[streamIdx],
     }
 }
 
-read_superblock :: proc(using this : ^SuperBlock, data: []byte) -> (success: bool) {
+read_superblock :: proc(data: []byte) -> (this : SuperBlock, success: bool) {
+    success = false
     if len(data)  < len(FileMagic) + size_of(SuperBlock) {
         log.debug("data len too small")
-        return false
+        return
     }
 
     if strings.compare(strings.string_from_ptr(&data[0], len(FileMagic)), FileMagic) != 0 {
         log.debug("FileMagic mismatch")
-        return false
+        return
     }
 
-    this^ = (cast(^SuperBlock)&data[len(FileMagic)])^
-
-    return true
+    this = (cast(^SuperBlock)&data[len(FileMagic)])^
+    success = true
+    return
 }
 
 read_stream_dir :: proc(using this: ^SuperBlock, data: []byte) -> (sd: StreamDirectory) {
@@ -113,7 +118,9 @@ get_byte :: proc(using this: ^BlocksReader, at: uint) -> byte {
 @private
 _can_read_packed :: proc ($T: typeid) -> bool {
     if intrinsics.type_is_struct(T) {
-        ti := cast(^runtime.Type_Info_Struct)type_info_of(T)
+        bti := runtime.type_info_base(type_info_of(T))
+        ti, ok := bti.variant.(runtime.Type_Info_Struct)
+        if !ok do return false
         return ti.is_packed
     }
     return true
@@ -123,10 +130,12 @@ MsfNotPackedMarker :: struct {}
 
 read_packed :: proc(using this: ^BlocksReader, $T: typeid) -> (ret: T)
     where !intrinsics.type_has_field(T, "_base"),
-    !intrinsics.type_is_subtype_of(T, MsfNotPackedMarker) {
+          !intrinsics.type_is_subtype_of(T, MsfNotPackedMarker) {
         when ODIN_DEBUG==true {
-            //log.errorf("Type %v cannot be read", type_info_of(T))
-            assert(_can_read_packed(T), "type cannot be read") // I wish this could've been constexpred
+            if (!_can_read_packed(T))  {
+                log.errorf("Invalid type: %v", type_info_of(T).variant)
+                assert(false, "type cannot be read") // I wish this could've been constexpred
+            }
         }    
         tsize := cast(uint)size_of(T)
         assert(size == 0 || offset + tsize <= size, "block overflow")
@@ -206,4 +215,80 @@ ceil_div :: #force_inline proc(a: u32le, b: u32le) -> u32le {
     ret := a / b
     if b * ret != a do ret += 1
     return ret
+}
+
+@private
+Stack :: struct($T: typeid) {
+    buf:        []T,
+    count:      int,
+    allocator:  mem.Allocator,
+}
+
+make_stack :: proc($T: typeid, cap: int, allocator : mem.Allocator) -> (ret:Stack(T)) {
+    ret.allocator = allocator
+    ensure_cap(&ret, cap)
+    return
+}
+
+delete_stack :: proc(using stack: ^Stack($T)) {
+    c := context
+    if allocator.procedure != nil {
+        c.allocator = allocator
+    }
+    context = c
+    delete(buf)
+    count = 0
+    buf = nil
+}
+
+get_stack :: #force_inline proc(using stack: ^Stack($T), index : int) -> T {
+    return buf[index]
+}
+
+clear_stack :: #force_inline proc(using stack: ^Stack($T)) {
+    count = 0
+}
+
+ensure_cap :: proc(using stack: ^Stack($T), newCap: int) {
+    if newCap > len(buf) {
+        c := context
+        if allocator.procedure != nil {
+            c.allocator = allocator
+        }
+        context = c
+
+        oldBuffer := buf
+        defer delete(oldBuffer)
+
+        buf = make(type_of(buf), newCap)
+        if count > 0 {
+            mem.copy(&buf[0], &oldBuffer[0], count * size_of(T))
+        }
+    }
+}
+
+push :: #force_inline proc(using stack: ^Stack($T), value: T) {
+    if len(buf) == count {
+        newCap := len(buf)*2
+        if newCap < 8 { newCap = 8 }
+        ensure_cap(stack, newCap)
+    }
+    buf[count]=value
+    count+=1
+}
+
+pop :: #force_inline proc(using stack: ^Stack($T)) -> (T, bool) {
+    if count == 0 {
+        return T{}, false
+    }
+
+    count-=1
+    return buf[count], true
+}
+
+pop_n :: #force_inline proc(using stack: ^Stack($T), toPop: int) -> (popped: int) {
+    popped = toPop
+    if popped > count { popped = count }
+    count -= popped
+    return
 }

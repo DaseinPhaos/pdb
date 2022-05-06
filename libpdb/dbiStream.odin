@@ -3,15 +3,15 @@ package libpdb
 import "core:log"
 import "core:intrinsics"
 
-DbiStream_Index :: 3
+DbiStream_Index :MsfStreamIdx: 3
 
 DbiStreamHeader :: struct #packed {
     versionSignature    : i32le,
     versionHeader       : DbiStreamVersion,
     age                 : u32le,
-    globalStreamIndex   : u16le,
+    globalStreamIndex   : MsfStreamIdx,
     buildNumber         : DbiBuildNumber,
-    publicStreamIndex   : u16le,
+    publicStreamIndex   : MsfStreamIdx,
     pdbDllVersion       : u16le,
     symRecordStream     : u16le,
     pdbDllRbld          : u16le,
@@ -55,9 +55,9 @@ DbiModInfo :: struct {
     // using _npm : MsfNotPackedMarker,
     using _base : struct #packed {
         unused1             : u32le,
-        sectionContr        : DbiSecContrEntry,
+        sectionContribution : DbiSectionContribution,
         flags               : DbiModInfo_Flags,
-        moduleSymStream     : i16le, // index of the stream..
+        moduleSymStream     : MsfStreamIdx, // index of the stream..
         symByteSize         : u32le,
         c11ByteSize         : u32le,
         c13ByteSize         : u32le,
@@ -85,23 +85,25 @@ read_dbiModInfo :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where intri
     return ret
 }
 
+// section contribution sub stream seems to be nicely sorted by section index and offset
+// based on function rva, we can bisearch this array to locate the module.
 DbiSecContrVersion :: enum u32le {
     Ver60 = 0xeffe0000 + 19970605,
     V2 = 0xeffe0000 + 20140516,
 }
-DbiSecContrEntry :: struct #packed {
+DbiSectionContribution :: struct #packed {
     section         : u16le,
     padding1        : u16le,
-    offset          : i32le,
-    size            : i32le,
-    chaaracteristics: u32le,
-    moduleIndex     : i16le,
+    offset          : u32le,
+    size            : u32le,
+    characteristics : u32le,
+    moduleIndex     : u16le, // index into the module substream
     padding2        : u16le,
     dataCrc         : u32le,
     relocCrc        : u32le,
 }
-DbiSecContrEntry2 :: struct #packed {
-    using sc  : DbiSecContrEntry,
+DbiSectionContribution2 :: struct #packed {
+    using sc  : DbiSectionContribution,
     iSectCoff : u32le,
 }
 
@@ -176,20 +178,180 @@ read_dbiFileInfos :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where int
 
 // Optional Debug Header Streams
 DbiOptDbgHeaders :: struct #packed {
-    framePointerOmission: i16le,
-    exception           : i16le,
-    fixup               : i16le,
-    omapToSrc           : i16le,
-    omapFromSrc         : i16le,
-    sectionHeader       : i16le,
-    tokenToRID          : i16le,
-    xdata               : i16le,
-    pdata               : i16le,
-    newFPO              : i16le,
-    oSectionHeader      : i16le,
+    framePointerOmission: MsfStreamIdx,
+    exception           : MsfStreamIdx,
+    fixup               : MsfStreamIdx,
+    omapToSrc           : MsfStreamIdx, // []PEOMapRecord
+    omapFromSrc         : MsfStreamIdx, // []PEOMapRecord
+    sectionHeader       : MsfStreamIdx, // []PESectionHeader in pdb (or original if identical)
+    tokenToRID          : MsfStreamIdx,
+    xdata               : MsfStreamIdx,
+    pdata               : MsfStreamIdx,
+    newFPO              : MsfStreamIdx,
+    oSectionHeader      : MsfStreamIdx, // []PESectionHeader in original file (if not identical)
 }
 
-parse_dbi_stream :: proc(this: ^BlocksReader) -> (header : DbiStreamHeader) {
+// data that's essential for sourcecode lookup
+SlimDbiData :: struct {
+    modules       : []SlimDbiMod,
+    contributions : []SlimDbiSecContr, // sorted by section/offset, deduplicated on module
+    sections      : []SlimDbiSecInfo,
+    // TODO: omap lookup for rva transition
+}
+@private
+_cmp_sc :: #force_inline proc(l, r: SlimDbiSecContr) -> int {
+    if l.section < r.section do return -1
+    else if l.section > r.section do return 1
+    else if l.offset < r.offset do return -1
+    else if l.offset > r.offset do return 1
+    return 0
+}
+search_for_section_contribution :: proc(using this: ^SlimDbiData, imgRva : u32le) -> (sci : int) {
+    sectionIdx := -1
+    offsetInSection :u32le= 0
+    for section, i in sections {
+        if imgRva >= section.vAddr && imgRva < section.vAddr + section.vSize {
+            sectionIdx = i
+            //log.debug(section)
+            offsetInSection = imgRva - section.vAddr
+            break
+        }
+    }
+    if sectionIdx == -1 do return -1
+    // bisearch for module
+    ti := SlimDbiSecContr{offsetInSection, u16le(sectionIdx+1), 0}
+    lo, hi := 0, (len(contributions)-1)
+    if hi < 0 || _cmp_sc(ti, contributions[lo]) < 0 do return -1
+    if _cmp_sc(contributions[hi], ti) < 0 do return int(hi)
+    // ti in range, do a bisearch
+    for lo <= hi {
+        mid := lo + ((hi-lo)>>1)
+        mv := _cmp_sc(ti, contributions[mid])
+        if mv == 0 {
+            lo = mid + 1
+            break
+        }
+        else if mv < 0 do hi = mid - 1
+        else do lo = mid + 1
+    }
+    if lo > 0 do lo -= 1
+    return int(lo)
+}
+
+SlimDbiMod :: struct {
+    moduleName        : string,
+    objFileName       : string,
+    symByteSize       : u32le,
+    c11ByteSize       : u32le,
+    c13ByteSize       : u32le,
+    moduleSymStream   : MsfStreamIdx,
+}
+SlimDbiSecContr :: struct {
+    offset : u32le,
+    section: u16le, // 1-indexed section id into []sections
+    module : u16le, // 0-indexed module id into []modules
+}
+SlimDbiSecInfo :: struct {
+    name    : PESectionName,
+    vSize   : u32le,
+    vAddr   : u32le,
+}
+
+find_dbi_stream :: proc(streamDir: ^StreamDirectory) -> (ret : SlimDbiData) {
+    dbiSr := get_stream_reader(streamDir, DbiStream_Index)
+    this := &dbiSr
+    header := readv(this, DbiStreamHeader)
+    if header.versionSignature != -1 {
+        log.warnf("unrecognized dbiVersionSignature: %v", header.versionSignature)
+    }
+    if header.versionHeader != .V70 {
+        log.warnf("unrecognized dbiVersionHeader: %v", header.versionHeader)
+    }
+    if !_is_new_version_format(header.buildNumber) {
+        log.warnf("unrecognized old dbiBuildNumber: %v", header.buildNumber)
+    }
+    { // Module Info substream
+        stack := make_stack(SlimDbiMod, int(header.modInfoSize / size_of(DbiModInfo)), context.temp_allocator)
+        defer delete_stack(&stack)
+        substreamEnd := uint(header.modInfoSize) + this.offset
+        defer assert(this.offset == substreamEnd)
+        for this.offset < substreamEnd {
+            modi := readv(this, DbiModInfo)
+            push(&stack, SlimDbiMod{modi.moduleName, modi.objFileName, modi.symByteSize, modi.c11ByteSize, modi.c13ByteSize, modi.moduleSymStream})
+        }
+        if stack.count > 0 {
+            ret.modules = make([]SlimDbiMod, stack.count)
+            intrinsics.mem_copy_non_overlapping(&ret.modules[0], &stack.buf[0], stack.count * size_of(SlimDbiMod))
+        }
+    }
+    { // section contribution substream
+        substreamEnd := uint(header.secContributionSize) + this.offset
+        defer assert(this.offset == substreamEnd)
+        secContrSubstreamVersion := readv(this, DbiSecContrVersion)
+        //log.debug(secContrSubstreamVersion)
+        secContrEntrySize := size_of(DbiSectionContribution)
+        switch secContrSubstreamVersion {
+        case .Ver60:
+        case .V2: secContrEntrySize = size_of(DbiSectionContribution2)
+        case: assert(false, "Invalid DbiSecContrVersion")
+        }
+        itemCount := (substreamEnd - this.offset) / uint(secContrEntrySize)
+        assert(itemCount > 0)
+        lastItem : SlimDbiSecContr
+        {
+            baseOffset := this.offset
+            defer this.offset = baseOffset + cast(uint)secContrEntrySize
+            secContr := readv(this, DbiSectionContribution)
+            lastItem = SlimDbiSecContr{
+                offset = secContr.offset, section = secContr.section, module = secContr.moduleIndex,
+            }
+        }
+        stack := make_stack(SlimDbiSecContr, int(itemCount), context.temp_allocator)
+        defer delete_stack(&stack)
+        for this.offset < substreamEnd {
+            baseOffset := this.offset
+            defer this.offset = baseOffset + cast(uint)secContrEntrySize
+            secContr := readv(this, DbiSectionContribution)
+            if secContr.size == 0 do continue
+            //log.debug(secContr)
+            assert(secContr.section > lastItem.section || secContr.offset > lastItem.offset)
+            if secContr.section != lastItem.section || secContr.moduleIndex != lastItem.module {
+                // new
+                push(&stack, lastItem)
+                lastItem = SlimDbiSecContr{
+                    offset = secContr.offset, section = secContr.section, module = secContr.moduleIndex,
+                }
+            } else {
+                // cumulate
+                lastItem.offset = secContr.offset
+            }
+        }
+        push(&stack, lastItem)
+        ret.contributions = make([]SlimDbiSecContr, stack.count)
+        intrinsics.mem_copy_non_overlapping(&ret.contributions[0], &stack.buf[0], stack.count * size_of(SlimDbiSecContr))
+    }
+    // skip irrelevant streams
+    this.offset += uint(header.secMapSize)
+    this.offset += uint(header.srcInfoSize)
+    this.offset += uint(header.typeServerMapSize)
+    this.offset += uint(header.ecSubstreamSize)
+    optDbgHeaders := readv(this, DbiOptDbgHeaders)
+    if stream_idx_valid(optDbgHeaders.sectionHeader) {
+        sectionRdr := get_stream_reader(streamDir, optDbgHeaders.sectionHeader)
+        sectionLen := sectionRdr.size / size_of(PESectionHeader)
+        ret.sections = make([]SlimDbiSecInfo, sectionLen)
+        for i in 0..<sectionLen {
+            secHdr := readv(&sectionRdr, PESectionHeader)
+            ret.sections[i] = SlimDbiSecInfo{secHdr.name, secHdr.vSize, secHdr.vAddr, }
+        }
+        // TODO: omaps and stuff
+    }
+    return
+}
+
+parse_dbi_stream :: proc(streamDir: ^StreamDirectory) -> (header : DbiStreamHeader) {
+    dbiSr := get_stream_reader(streamDir, DbiStream_Index)
+    this := &dbiSr
     header = readv(this, DbiStreamHeader)
     if header.versionSignature != -1 {
         log.warnf("unrecognized dbiVersionSignature: %v", header.versionSignature)
@@ -218,17 +380,17 @@ parse_dbi_stream :: proc(this: ^BlocksReader) -> (header : DbiStreamHeader) {
         defer assert(this.offset == substreamEnd)
         secContrSubstreamVersion := readv(this, DbiSecContrVersion)
         log.debug(secContrSubstreamVersion)
-        secContrEntrySize := size_of(DbiSecContrEntry)
+        secContrEntrySize := size_of(DbiSectionContribution)
         switch secContrSubstreamVersion {
         case .Ver60:
-        case .V2: secContrEntrySize = size_of(DbiSecContrEntry2)
+        case .V2: secContrEntrySize = size_of(DbiSectionContribution2)
         case: assert(false, "Invalid DbiSecContrVersion")
         }
         for this.offset < substreamEnd {
             baseOffset := this.offset
             defer this.offset = baseOffset + cast(uint)secContrEntrySize
-            readv(this, DbiSecContrEntry)
-            //log.debug(secContrEntry)
+            secContr := readv(this, DbiSectionContribution)
+            log.debug(secContr)
         }
     }
 

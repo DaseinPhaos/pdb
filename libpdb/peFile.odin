@@ -2,6 +2,7 @@
 package libpdb
 import "core:log"
 import "core:fmt"
+import "core:slice"
 import "core:io"
 
 PE_Signature_OffsetIdxPos :: 0x3c // ?u32le?
@@ -140,7 +141,7 @@ PEOptHdr_DataDirectories :: struct #packed {
     pdata,  // exception table
     attrCert, // attribute certificate table
     reloc,  // base relocation table
-    debug,  // debut data table
+    debug,  // debug data table
     _architecture, // reserved
     globalPtr, // global pointer register. size==0
     tls, // thread local storage table
@@ -183,7 +184,10 @@ peSectionName_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
     io.write_rune(fi.writer, ')', &fi.n)
     return true
 }
-
+PESectionOffset :: struct #packed {
+    offset : u32le,
+    secIdx : u16le,
+}
 PESectionFlags :: enum u32le {
     None = 0,
     NoPad = 0x0000_0008, // obsolete, replaced by Align1
@@ -221,7 +225,50 @@ PESectionFlags :: enum u32le {
 
 // TODO: COFF Relocations
 
-parse_exe_file :: proc(this: ^BlocksReader) -> (coffHdr : CoffFileHeader, optHdr: union{PEOptHdr, PEOptHdrPlus}, dataDirs : PEOptHdr_DataDirectories, sectionTable: []PESectionHeader) {
+//.debug secion: Debug Directory
+PEDebugDirEntry :: struct #packed {
+    flags       : u32le, // reserved, must be 0
+    dateStamp   : u32le,
+    majorVer    : u16le,
+    minorVer    : u16le,
+    debugType   : PEDebugType,
+    dataSize    : u32le, // excluding the directory itself
+    rawDataAddr : u32le, // address of debug data when loaded
+    pRawData    : u32le, // file pointer to raw data on disk
+}
+PEDebugType :: enum u32le {
+    Unknown = 0,
+    COFF = 1, // The COFF debug information
+    CodeView = 2, // The Visual C++ debug information.
+    FPO = 3, // The frame pointer omission (FPO) information. This information tells the debugger how to interpret nonstandard stack frames, which use the EBP register for a purpose other than as a frame pointer.
+    Misc = 4, // The location of DBG file.
+    Exception = 5, // A copy of .pdata section.
+    Fixup = 6, // Reserved.
+    OmapToSrc = 7, // RVA mapping to src
+    OmapFromSrc = 8, // RVA mapping from src
+    BORLAND = 9, // Reserved for Borland.
+    Reserved10 = 10, // Reserved.
+    CLSID = 11, // Reserved.
+    Repro = 16, // PE determinism or reproducibility.
+    ExtendedDllCharacteristics = 20, // Extended DLL characteristics bits.
+}
+
+// record applies to the half-open intervals in the array
+PEOMapRecord :: struct #packed { sourceAddr, targetAddr: u32le, }
+
+PECodeViewInfoPdb70 :: struct {
+    using _base : PECodeViewInfoPdb70Base,
+    filename    : string,
+}
+PECodeViewInfoPdb70Base :: struct #packed {
+    cvSignature : u32le, // should be PECodeView_Signature_RSDS
+    guid        : u128le,
+    age         : u32le,
+}
+PECodeView_Signature_RSDS :u32le: 0x5344_5352
+
+
+parse_pe_file :: proc(this: ^BlocksReader) -> (coffHdr : CoffFileHeader, optHdr: union{PEOptHdr, PEOptHdrPlus}, dataDirs : PEOptHdr_DataDirectories, sectionTable: []PESectionHeader) {
     this.offset = PE_Signature_OffsetIdxPos
     sigOffset := readv(this, u32le)
     this.offset = uint(sigOffset)
@@ -231,14 +278,14 @@ parse_exe_file :: proc(this: ^BlocksReader) -> (coffHdr : CoffFileHeader, optHdr
         return
     }
     coffHdr = readv(this, CoffFileHeader)
-    log.debug(coffHdr)
+    //log.debug(coffHdr)
     optHdrMagic := readv(this, PEOptHdrMagic)
     switch optHdrMagic {
     case .PE32: optHdr = readv(this, PEOptHdr)
     case .PE32Plus: optHdr = readv(this, PEOptHdrPlus)
     case: assert(false, "Invalid PEOptional Header Magic number")
     }
-    log.debug(optHdr)
+    //log.debug(optHdr)
     { // dataDir, limited read
         dataDirCount : u32le
         switch h in optHdr {
@@ -247,10 +294,13 @@ parse_exe_file :: proc(this: ^BlocksReader) -> (coffHdr : CoffFileHeader, optHdr
         case: assert(false)
         }
         baseOffset := this.offset
-        defer this.offset = baseOffset + uint(dataDirCount)*size_of(PEOptHdr_DataDirectory)
-        // TODO: trash fields cleanup
-        dataDirs = readv(this, PEOptHdr_DataDirectories)
-        log.debug(dataDirs)
+        //defer this.offset = baseOffset + uint(dataDirCount)*size_of(PEOptHdr_DataDirectory)
+        // dataDirs = readv(this, PEOptHdr_DataDirectories)
+        ddSlice := slice.from_ptr(cast(^PEOptHdr_DataDirectory)&dataDirs, int(dataDirCount))
+        for i in 0..<len(ddSlice) {
+            ddSlice[i] = readv(this, PEOptHdr_DataDirectory)
+        }
+        //log.debug(dataDirs)
     }
     if coffHdr.numSecs > 0 {
         sectionTable = make([]PESectionHeader, coffHdr.numSecs)
@@ -258,7 +308,7 @@ parse_exe_file :: proc(this: ^BlocksReader) -> (coffHdr : CoffFileHeader, optHdr
             sectionTable[i] = readv(this, PESectionHeader)
         }
     }
-    log.debug(sectionTable)
+    //log.debug(sectionTable)
     return
 }
 

@@ -2,8 +2,8 @@
 package libpdb
 import "core:log"
 
-TpiStream_Index :: 2
-IpiStream_Index :: 4
+TpiStream_Index :MsfStreamIdx: 2
+IpiStream_Index :MsfStreamIdx: 4
 
 TpiStreamHeader :: struct #packed {
     version             : TpiStreamVersion, // appears to always be v80
@@ -12,8 +12,8 @@ TpiStreamHeader :: struct #packed {
     typeIndexEnd        : TypeIndex, // total number of type records = typeIndexEnd-typeIndexBegin
     typeRecordBytes     : u32le, // type record data size following the header
 
-    hashStreamIndex     : i16le, // -1 means not present, usually always observed to be present
-    hashAuxStreamIndex  : i16le, // unclear what for
+    hashStreamIndex     : MsfStreamIdx, // -1 means not present, usually always observed to be present
+    hashAuxStreamIndex  : MsfStreamIdx, // unclear what for
     hashKeySize         : u32le, // usually 4 bytes
     numHashBuckets      : u32le, // number of buckets used to generate these hash values
 
@@ -80,7 +80,7 @@ parse_tpi_stream :: proc(this: ^BlocksReader, dir: ^StreamDirectory) -> (header:
     }
 
     if header.hashStreamIndex >= 0 {
-        hashStream := get_stream_reader(dir, u32le(header.hashStreamIndex))
+        hashStream := get_stream_reader(dir, header.hashStreamIndex)
         iobLen := header.indexOffsetBufferLength / size_of(TpiIndexOffsetPair)
         tiob.buf = make([]TpiIndexOffsetPair, iobLen)
         hashStream.offset = uint(header.indexOffsetBufferOffset) //?

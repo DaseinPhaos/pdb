@@ -2,17 +2,156 @@
 package libpdb
 import "core:log"
 import "core:strings"
+import "core:intrinsics"
 
 ModStreamHeader :: struct #packed {
-    signature : ModStreamSignature, // == C13
-    // symbolsSubStream : [modi.symByteSize-4]byte
-    // c11LineInfoSubStream : [c11ByteSize]byte
-    // c13LineInfoSubStream : [c13ByteSize]byte
-    // globalRefsSize : u32le
-    // globalRefs: [globalRefsSize]byte
+    signature : ModStreamSignature, // expected to be .C13
 }
+// symbolsSubStream : [modi.symByteSize-4]byte
+// c11LineInfoSubStream : [modi.c11ByteSize]byte
+// c13LineInfoSubStream : [modi.c13ByteSize]byte
+// globalRefsSize : u32le
+// globalRefs: [modi.globalRefsSize]byte
 
 ModStreamSignature :: enum u32le {C7 = 1, C11 = 2, C13 = 4,}
+
+resolve_mod_stream :: proc(streamDir: ^StreamDirectory, modi: ^SlimDbiMod) -> (ret: SlimModData) {
+    modSr := get_stream_reader(streamDir, modi.moduleSymStream)
+    modHeader := readv(&modSr, ModStreamHeader)
+
+    { // symbol substream
+        symSubStreamSize := modi.symByteSize - 4
+        symSubStreamEnd := modSr.offset + uint(symSubStreamSize)
+        defer modSr.offset = symSubStreamEnd
+        stack := make_stack(CvsProc32, cast(int)symSubStreamSize / ((size_of(CvsProc32)+size_of(CvsRecordKind))*4), context.temp_allocator)
+        defer delete_stack(&stack)
+        for modSr.offset < symSubStreamEnd {
+            cvsHeader  := readv(&modSr, CvsRecordHeader)
+            baseOffset := modSr.offset
+            defer modSr.offset = baseOffset+ uint(cvsHeader.length) - size_of(CvsRecordKind)
+            #partial switch cvsHeader.kind {
+            case .S_LPROC32:fallthrough
+            case .S_LPROC32_ID:fallthrough
+            case .S_LPROC32_DPC:fallthrough
+            case .S_LPROC32_DPC_ID:fallthrough
+            case .S_GPROC32:fallthrough
+            case .S_GPROC32_ID:
+                push(&stack, readv(&modSr, CvsProc32))
+            }
+        }
+        if stack.count > 0 {
+            ret.procs = make([]CvsProc32, stack.count)
+            intrinsics.mem_copy_non_overlapping(&ret.procs[0], &stack.buf[0], stack.count * size_of(CvsProc32))
+        }
+    }
+
+    {
+        // skip c11 lines
+        modSr.offset += uint(modi.c11ByteSize)
+        c13StreamStart  := modSr.offset
+        c13StreamEnd    := modSr.offset + uint(modi.c13ByteSize)
+        fileChecksumOffset : Maybe(uint)
+        lineBlockCount := 0
+        // first pass
+        for modSr.offset < c13StreamEnd {
+            ssh := readv(&modSr, CvDbgSubsectionHeader)
+            endOffset := modSr.offset + uint(ssh.length)
+            //log.debugf("[%v:%v] %v", modSr.offset, endOffset, ssh)
+            defer modSr.offset = endOffset
+            #partial switch ssh.subsectionType {
+            case .FileChecksums: fileChecksumOffset = modSr.offset
+            case .Lines: lineBlockCount+=1
+            }
+        }
+        ret.blocks = make([]SlimModLineBlock, lineBlockCount)
+        // second pass
+        modSr.offset = c13StreamStart
+        lineBlockCount = 0
+        for modSr.offset < c13StreamEnd {
+            ssh := readv(&modSr, CvDbgSubsectionHeader)
+            endOffset := modSr.offset + uint(ssh.length)
+            //log.debugf("[%v:%v] %v", modSr.offset, endOffset, ssh)
+            defer modSr.offset = endOffset
+            #partial switch ssh.subsectionType {
+            case .Lines: 
+                cBlock := &ret.blocks[lineBlockCount]
+                lineBlockCount+=1
+                ssLines := readv(&modSr, CvDbgssLinesHeader)
+                lineBlock := readv(&modSr, CvDbgLinesFileBlockHeader)
+                cBlock^ = SlimModLineBlock{
+                    _secOffset = PESectionOffset{offset = ssLines.offset, secIdx = ssLines.seg,},
+                    nameOffset = lineBlock.offFile, // unresolved for now
+                    lines = make([]SlimModLinePos, lineBlock.nLines),
+                }
+                for li in 0..<lineBlock.nLines {
+                    line := readv(&modSr, CvDbgLinePacked)
+                    lns, lne, _ := unpack_lineFlag(line.flags)
+                    cBlock.lines[li].offset = line.offset
+                    cBlock.lines[li].lineStart = cast(u32le)lns
+                }
+                if ssLines.flags != .hasColumns && endOffset - modSr.offset == size_of(CvDbgColumn)  * uint(lineBlock.nLines) {
+                    log.debug("Flag indicates no column info, but infered from block length we assume column info anyway")
+                    ssLines.flags = .hasColumns
+                }
+                if ssLines.flags == .hasColumns {
+                    for li in 0..<lineBlock.nLines {
+                        column := readv(&modSr, CvDbgColumn)
+                        cBlock.lines[li].colStart = u32le(column.start)
+                    }
+                }
+            }
+        }
+        if fco, ok := fileChecksumOffset.?; ok {
+            for i in 0..<len(ret.blocks) {
+                modSr.offset = fco + uint(ret.blocks[i].nameOffset)
+                checksumHdr := readv(&modSr, CvDbgFileChecksumHeader)
+                ret.blocks[i].nameOffset = NamesStream_StartOffset + checksumHdr.nameOffset
+                //log.debug(ret.blocks[i].nameOffset)
+            }
+        } else {
+            for i in 0..<len(ret.blocks) {
+                ret.blocks[i].nameOffset = 0
+            }
+        }
+    }
+
+    return
+}
+
+SlimModData :: struct {
+    procs  : []CvsProc32,
+    blocks : []SlimModLineBlock,
+}
+SlimModLineBlock :: struct {
+    using _secOffset : PESectionOffset,
+    nameOffset: u32le, // into the namesStream, with NamesStream_StartOffset already applied.
+    lines     : []SlimModLinePos,
+}
+SlimModLinePos :: struct {lineStart, colStart, offset : u32le,}
+
+locate_pc :: proc(using data: ^SlimModData, func: PESectionOffset,  pcFromFunc: u32le) -> (csvProc:^CvsProc32, lineBlock: ^SlimModLineBlock, line: ^SlimModLinePos){
+    for p, i in procs {
+        if p.seg == func.secIdx && p.offset == func.offset {
+            csvProc = &procs[i]
+            break
+        }
+    }
+    for lb, lbi in blocks {
+        if lb.secIdx != func.secIdx || lb.offset != func.offset {
+            continue
+        }
+        lineBlock = &blocks[lbi]
+        line = &lb.lines[0]
+        // ?bisearch?
+        for i in 1..<len(lb.lines) {
+            cl := &lb.lines[i]
+            if cl.offset > pcFromFunc do break
+            line = cl
+        }
+        return
+    }
+    return
+}
 
 parse_mod_stream :: proc(this: ^BlocksReader, modi: ^DbiModInfo, namesStream: ^BlocksReader) {
     header := readv(this, ModStreamHeader)

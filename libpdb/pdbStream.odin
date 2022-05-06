@@ -3,7 +3,8 @@ package libpdb
 import "core:log"
 import "core:strings"
 
-PdbStream_Index :: 1
+PdbStream_Index :MsfStreamIdx: 1
+NamesStream_Name :: "/names"
 
 PdbStreamHeader :: struct #packed {
     version     : PdbStreamVersion,
@@ -28,17 +29,17 @@ PdbStreamVersion :: enum u32le {
 PdbNamedStreamMap :: struct {
     strBuf : []byte, names : []PdbNamedStream,
 }
-find_named_stream :: proc(using this: PdbNamedStreamMap, name: string) -> (streamIdx: u32le, found: bool) {
+find_named_stream :: proc(using this: PdbNamedStreamMap, name: string) -> (streamIdx: MsfStreamIdx) {
     for ns in names {
         if strings.compare(ns.name, name) == 0 {
-            return ns.streamIdx, true
+            return MsfStreamIdx(ns.streamIdx)
         }
     }
-    return 0, false
+    return MsfStreamIdx_Invalid
 }
 
 PdbNamedStream :: struct {
-    name : string, streamIdx : u32le,
+    name : string, streamIdx : u32le, //?
 }
 
 PdbRaw_FeatureSig :: enum u32le {

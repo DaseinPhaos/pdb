@@ -9,7 +9,7 @@ NamesStreamHeader :: struct #packed {
 }
 NamesStreamHashVersion :: enum u32le {LongHash = 1, LongHashV2 = 2,}
 NamesStream_HeaderMagic :u32le: 0xeffe_effe
-NamesStream_StartOffset :uint: size_of(NamesStreamHeader)
+NamesStream_StartOffset :: size_of(NamesStreamHeader)
 
 parse_names_stream :: proc(this: ^BlocksReader) -> (header: NamesStreamHeader) {
     header = readv(this, NamesStreamHeader)
