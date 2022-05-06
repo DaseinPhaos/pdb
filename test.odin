@@ -5,15 +5,31 @@ import "core:fmt"
 import "core:os"
 import "core:strings"
 import "core:log"
+import "core:runtime"
+import "core:intrinsics"
+
+on_assert_fail :: proc(prefix, message: string, loc: runtime.Source_Code_Location) -> ! {
+    using libpdb
+    traceBuf := make([]StackFrame , 32)
+    traceCount := capture_stack_trace(traceBuf)
+    fmt.printf("%v: %v\nStacktrack[%d]:\n", prefix, message, traceCount)
+    srcCodeLines := parse_stack_trace(traceBuf[:traceCount])
+    for scl in srcCodeLines {
+        fmt.printf("%v:%d:%d: %v()\n", scl.file_path, scl.line, scl.column, scl.procedure)
+    }
+    intrinsics.trap()
+}
 
 main ::proc() {
     //odin run test -debug -out:test\demo.exe > .\build\demo.log
     //odin run test.odin -file -out:build\test.pdb -- .\test\demo.pdb
     //odin run test.odin -file -out:build\test.exe -debug -- .\build\test.pdb
-    context.logger.lowest_level = .Debug
+    context.assertion_failure_proc = on_assert_fail
+
+    context.logger.lowest_level = .Warning
     log_proc :: proc(data: rawptr, level: log.Level, text: string, options: log.Options, location:= #caller_location) {
         #partial switch level {
-        case log.Level.Debug: fmt.printf("[%v]: %v\n", level, text)
+        //case log.Level.Debug: fmt.printf("[%v]: %v\n", level, text)
         case: fmt.printf("[%v]%v: %v\n", level, location, text)
         }
         //fmt.printf("[%v]%v: %v\n", level, location, text)
@@ -52,19 +68,20 @@ test_dump_stack :: proc() {
 }
 
 foo :: proc() {
-    fmt.println("dump..")
+    fmt.println("foo..")
     bar()
     fmt.println("...done")
 }
 
 bar :: proc() {
-    using libpdb
-    traceBuf := make([]StackFrame , 32)
-    traceCount := capture_stack_trace(traceBuf)
-    srcCodeLines := parse_stack_trace(traceBuf[:traceCount])
-    for scl in srcCodeLines {
-        fmt.printf("%v:%d:%d:%v()\n", scl.file_path, scl.line, scl.column, scl.procedure)
-    }
+    // using libpdb
+    // traceBuf := make([]StackFrame , 32)
+    // traceCount := capture_stack_trace(traceBuf)
+    // srcCodeLines := parse_stack_trace(traceBuf[:traceCount])
+    // for scl in srcCodeLines {
+    //     fmt.printf("%v:%d:%d:%v()\n", scl.file_path, scl.line, scl.column, scl.procedure)
+    // }
+    assert(false, "Failed!")
 }
 
 test_exe :: proc(file_content: []byte) {

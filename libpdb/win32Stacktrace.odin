@@ -205,8 +205,8 @@ parse_stack_trace :: proc(stackTrace: []StackFrame) -> (srcCodeLocs :[]runtime.S
             nameBuf : [windows.MAX_PATH]u16
             pBuf := &nameBuf[0]
             nameLen := windows.GetModuleFileNameW(windows.HMODULE(stackFrame.imgBaseAddr), pBuf, len(nameBuf))
-            //log.debugf("getting module name for image at 0x%p, nameLen: %d", stackFrame.imgBaseAddr, nameLen)
             mi.filePath = windows.wstring_to_utf8(pBuf, cast(int)nameLen)
+            log.debugf("getting module name for image at 0x%p, name[%d]:%v", stackFrame.imgBaseAddr, nameLen, mi.filePath)
             peFileContent, peFileOk := os.read_entire_file(mi.filePath)
             if !peFileOk { // ? what else can be done?
                 continue
@@ -214,6 +214,7 @@ parse_stack_trace :: proc(stackTrace: []StackFrame) -> (srcCodeLocs :[]runtime.S
             // fetch info from PE file
             peReader := make_dummy_reader(peFileContent)
             coffHdr, optHdr, dataDirs, sectionTable := parse_pe_file(&peReader)
+            //log.debug(coffHdr)
             mi.sectionTable = sectionTable
             if dataDirs.debug.size > 0 {
                 ddEntrys := slice.from_ptr(
@@ -244,22 +245,26 @@ parse_stack_trace :: proc(stackTrace: []StackFrame) -> (srcCodeLocs :[]runtime.S
             }
             // we need: relevant DbiModInfos, also a section contribution substream that our rva's can be used for searching
         }
+        //log.debugf("reading module name for image at 0x%p, name:%v", stackFrame.imgBaseAddr, mi.filePath)
         pcRva := u32le(stackFrame.progCounter - stackFrame.imgBaseAddr)
         funcRva := u32le(stackFrame.funcBegin)
         // TODO: modMap := make(map[u64]_PEModuleInfo, 8, context.temp_allocator)
         if sci := search_for_section_contribution(&mi.dbiData, funcRva); sci >= 0 {
             sc := mi.dbiData.contributions[sci]
             modi := mi.dbiData.modules[sc.module]
+            //log.debugf("secCon[%d]:%v, %v", sci, sc, modi)
             funcOffset := PESectionOffset {
                 offset = funcRva - mi.dbiData.sections[sc.section-1].vAddr, //???
                 secIdx = sc.section,
             }
             modData := resolve_mod_stream(&mi.streamDir, &modi)
+            //log.debug("mod data resolved")
             p, lb, l := locate_pc(&modData, funcOffset, pcRva-funcRva)
             if p != nil {
                 srcCodeLocs[i].procedure = p.name
                 srcCodeLocs[i].line = i32(l.lineStart)
                 srcCodeLocs[i].column = i32(l.colStart)
+                //log.debugf("proc resolved: %v", p.name)
             }
             if lb != nil && lb.nameOffset > 0 {
                 // TODO:caching?

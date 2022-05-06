@@ -130,17 +130,20 @@ SlimModLineBlock :: struct {
 SlimModLinePos :: struct {lineStart, colStart, offset : u32le,}
 
 locate_pc :: proc(using data: ^SlimModData, func: PESectionOffset,  pcFromFunc: u32le) -> (csvProc:^CvsProc32, lineBlock: ^SlimModLineBlock, line: ^SlimModLinePos){
-    for p, i in procs {
+    for i in 0..<len(procs) {
+        //log.debugf("%d/%d:", i, )
+        p := &procs[i]
         if p.seg == func.secIdx && p.offset == func.offset {
-            csvProc = &procs[i]
+            csvProc = p
             break
         }
     }
-    for lb, lbi in blocks {
+    for lbi in 0..<len(blocks) {
+        lb := &blocks[lbi]
         if lb.secIdx != func.secIdx || lb.offset != func.offset {
             continue
         }
-        lineBlock = &blocks[lbi]
+        lineBlock = lb
         line = &lb.lines[0]
         // ?bisearch?
         for i in 1..<len(lb.lines) {
