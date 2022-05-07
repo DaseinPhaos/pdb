@@ -73,7 +73,6 @@ read_stream_dir :: proc(using this: ^SuperBlock, r: io.Reader) -> (sd: StreamDir
         log.debugf("read block map failed with %v, nRead: %d, should be %d", readErr, nRead, numDirectoryBytes)
         return
     }
-    log.debugf("read sd with %v", this)
     breader := make_reader_from_indiced_buf(r, transmute([]u32le)mem.Raw_Slice{&iData[0], int(sdBlockCount)}, int(blockSize), numDirectoryBytes)
 
     sd.numStreams = readv(&breader, u32le)

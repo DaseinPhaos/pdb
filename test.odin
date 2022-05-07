@@ -79,15 +79,18 @@ bar :: proc() {
             fmt.printf("%v:%d:%d:%v()\n", scl.file_path, scl.line, scl.column, scl.procedure)
         }
     }
-    
-    //assert(false, "Failed!")
-    
 }
 
 test_exe :: proc(file_content: []byte) {
     using libpdb
     reader := make_dummy_reader(file_content)
-    parse_pe_file(&reader)
+    seek_to_pe_headers(&reader)
+    coffHdr, optHdr, dataDirs := read_pe_headers(&reader)
+    log.info(coffHdr)
+    log.info(optHdr)
+    log.info(dataDirs)
+    secs := read_packed_array(&reader, uint(coffHdr.numSecs), PESectionHeader)
+    log.info(secs)
 }
 
 test_pdb :: proc(file_content : []byte) {

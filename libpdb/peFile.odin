@@ -4,6 +4,7 @@ import "core:log"
 import "core:fmt"
 import "core:slice"
 import "core:io"
+import "core:mem"
 
 PE_Signature_OffsetIdxPos :: 0x3c // ?u32le?
 PE_Signature :u32le: 0x0000_4550 //PE\0\0
@@ -149,8 +150,8 @@ PEOptHdr_DataDirectories :: struct #packed {
     boundImport, // bound import table
     iat, // import address table
     delayLoadImport, // delay-load import tables
-    clrRuntime: PEOptHdr_DataDirectory, // clr runtime headers
-    //_reserved
+    clrRuntime, // clr runtime headers
+    _reserved: PEOptHdr_DataDirectory, 
 }
 // RVA: address of the table relative to image base address after loaded
 PEOptHdr_DataDirectory :: struct #packed { rva, size: u32le, }
@@ -261,24 +262,43 @@ PECodeViewInfoPdb70Base :: struct #packed {
 }
 PECodeView_Signature_RSDS :u32le: 0x5344_5352
 
-parse_pe_file :: proc(this: ^BlocksReader) -> (coffHdr : CoffFileHeader, optHdr: union{PEOptHdr, PEOptHdrPlus}, dataDirs : PEOptHdr_DataDirectories, sectionTable: []PESectionHeader) {
+read_pe_data_dirs :: proc(r: io.Stream) -> (ret : PEOptHdr_DataDirectories) {
+    r->impl_seek(PE_Signature_OffsetIdxPos, .Start)
+    peSigOffset : u32le
+    r->impl_read(transmute([]byte)mem.Raw_Slice{&peSigOffset, size_of(u32le)})
+    //log.debugf("peSigOffset:0x%x(%d)", peSigOffset, peSigOffset)
+    r->impl_seek(i64(peSigOffset), .Start)
+    PEPlusDataDirEnd :: size_of(u32le) + size_of(CoffFileHeader) + size_of(PEOptHdrMagic) + size_of(PEOptHdrPlus) + size_of(PEOptHdr_DataDirectories)
+    
+    buf :[PEPlusDataDirEnd]byte
+    if nRead, rErr := r->impl_read(buf[:]); rErr != nil || nRead != len(buf) {
+        return
+    }
+    br := make_dummy_reader(buf[:])
+    _, _, dataDirs := read_pe_headers(&br)
+    return dataDirs
+}
+
+seek_to_pe_headers :: proc(this: ^BlocksReader) {
     this.offset = PE_Signature_OffsetIdxPos
-    sigOffset := readv(this, u32le)
-    this.offset = uint(sigOffset)
+    peSigOffset := readv(this, u32le)
+    this.offset = uint(peSigOffset)
+}
+
+read_pe_headers :: proc(this: ^BlocksReader) -> (coffHdr : CoffFileHeader, optHdr: union{PEOptHdr, PEOptHdrPlus}, dataDirs : PEOptHdr_DataDirectories) {
+    // start from PE_Signature
     signature := readv(this, u32le)
     if signature != PE_Signature {
         log.warnf("Invalid signature 0x%x", signature)
         return
     }
     coffHdr = readv(this, CoffFileHeader)
-    //log.debug(coffHdr)
     optHdrMagic := readv(this, PEOptHdrMagic)
     switch optHdrMagic {
     case .PE32: optHdr = readv(this, PEOptHdr)
     case .PE32Plus: optHdr = readv(this, PEOptHdrPlus)
     case: assert(false, "Invalid PEOptional Header Magic number")
     }
-    //log.debug(optHdr)
     { // dataDir, limited read
         dataDirCount : u32le
         switch h in optHdr {
@@ -286,14 +306,11 @@ parse_pe_file :: proc(this: ^BlocksReader) -> (coffHdr : CoffFileHeader, optHdr:
         case PEOptHdrPlus: dataDirCount = h.windows.dataDirCount
         case: assert(false)
         }
-        baseOffset := this.offset
+        assert(dataDirCount * size_of(PEOptHdr_DataDirectory) <= size_of(PEOptHdr_DataDirectories), "dataDir overflow")
         ddSlice := slice.from_ptr(cast(^PEOptHdr_DataDirectory)&dataDirs, int(dataDirCount))
         for i in 0..<len(ddSlice) {
             ddSlice[i] = readv(this, PEOptHdr_DataDirectory)
         }
-    }
-    if coffHdr.numSecs > 0 {
-        sectionTable = read_packed_array(this, uint(coffHdr.numSecs), PESectionHeader)
     }
     return
 }

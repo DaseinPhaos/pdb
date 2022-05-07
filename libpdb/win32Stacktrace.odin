@@ -208,7 +208,7 @@ capture_strack_trace_from_context :: proc "contextless" (ctx: ^CONTEXT, traceBuf
 _PEModuleInfo :: struct {
     filePath     : string,
     pdbPath      : string,
-    pdbHandle    : os.Handle, // TODO: close this
+    pdbHandle    : os.Handle,
     streamDir    : StreamDirectory,
     namesStream  : BlocksReader,
     dbiData      : SlimDbiData,
@@ -234,14 +234,13 @@ parse_stack_trace :: proc(stackTrace: []StackFrame) -> (srcCodeLocs :[]runtime.S
             pBuf := &nameBuf[0]
             nameLen := windows.GetModuleFileNameW(windows.HMODULE(stackFrame.imgBaseAddr), pBuf, len(nameBuf))
             mi.filePath = windows.wstring_to_utf8(pBuf, cast(int)nameLen)
-            // TODO(opt): we don't need to load the entire file.
-            peFileContent, peFileOk := os.read_entire_file(mi.filePath)
-            if !peFileOk { // ? what else can be done?
+            peFile, peFileErr := os.open(mi.filePath)
+            if peFileErr != 0 {
+                // ? what can we do now?
                 continue
             }
-            // fetch info from PE file
-            peReader := make_dummy_reader(peFileContent)
-            coffHdr, optHdr, dataDirs, sectionTable := parse_pe_file(&peReader)
+            dataDirs := read_pe_data_dirs(os.stream_from_handle(peFile))
+            os.close(peFile)
             if dataDirs.debug.size > 0 {
                 ddEntrys := slice.from_ptr(
                     (^PEDebugDirEntry)((stackFrame.imgBaseAddr) + uintptr(dataDirs.debug.rva)),
@@ -314,7 +313,7 @@ parse_stack_trace :: proc(stackTrace: []StackFrame) -> (srcCodeLocs :[]runtime.S
 dump_stack_trace_on_exception :: proc "stdcall" (ExceptionInfo: ^windows.EXCEPTION_POINTERS) -> windows.LONG {
     context = runtime.default_context() // TODO: use another allocator
     ctxt := cast(^CONTEXT)ExceptionInfo.ContextRecord
-    traceBuf : [32]StackFrame
+    traceBuf : [64]StackFrame
     traceCount := capture_strack_trace_from_context(ctxt, traceBuf[:])
     // TODO: exception information should be printed here as well.
     fmt.printf("Stacktrack[%d]:\n", traceCount)
