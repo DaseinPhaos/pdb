@@ -5,6 +5,7 @@ import "core:slice"
 import "core:strings"
 import "core:intrinsics"
 import "core:runtime"
+import "core:fmt"
 import windows "core:sys/windows"
 foreign import ntdll_lib "system:ntdll.lib"
 
@@ -186,6 +187,23 @@ capture_stack_trace :: #force_no_inline proc(traceBuf: []StackFrame) -> (count :
     return
 }
 
+capture_strack_trace_from_context :: proc "contextless" (ctx: ^CONTEXT, traceBuf: []StackFrame) -> (count : uint) {
+    fImgBase : DWORD64
+    handlerData : rawptr
+    establisherFrame : DWORD64
+    for count = 0; count < len(traceBuf); count+=1 {
+        rtFunc := RtlLookupFunctionEntry(ctx.Rip, &fImgBase, nil)
+        if rtFunc == nil do break
+        pst := &traceBuf[count]
+        pst.progCounter = cast(uintptr)ctx.Rip
+        pst.imgBaseAddr = cast(uintptr)fImgBase
+        pst.funcBegin   = rtFunc.BeginAddress
+        pst.funcEnd     = rtFunc.EndAddress
+        RtlVirtualUnwind(0, fImgBase, ctx.Rip, rtFunc, ctx, &handlerData, &establisherFrame, nil)
+    }
+    return
+}
+
 _PEModuleInfo :: struct {
     filePath     : string,
     sectionTable : []PESectionHeader,
@@ -282,4 +300,19 @@ parse_stack_trace :: proc(stackTrace: []StackFrame) -> (srcCodeLocs :[]runtime.S
         //log.debug(srcCodeLocs[i])
     }
     return
+}
+
+
+dump_stack_trace_on_exception :: proc "stdcall" (ExceptionInfo: ^windows.EXCEPTION_POINTERS) -> windows.LONG {
+    context = runtime.default_context() // TODO: use another allocator somehow
+    ctxt := cast(^CONTEXT)ExceptionInfo.ContextRecord
+    traceBuf : [32]StackFrame
+    traceCount := capture_strack_trace_from_context(ctxt, traceBuf[:])
+    //fmt.printf("%v: %v\nStacktrack[%d]:\n", prefix, message, traceCount)
+    fmt.printf("Stacktrack[%d]:\n", traceCount)
+    srcCodeLines := parse_stack_trace(traceBuf[:traceCount])
+    for scl in srcCodeLines {
+        fmt.printf("%v:%d:%d: %v()\n", scl.file_path, scl.line, scl.column, scl.procedure)
+    }
+    return 0 // EXCEPTION_CONTINUE_SEARCH
 }

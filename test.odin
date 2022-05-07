@@ -7,6 +7,7 @@ import "core:strings"
 import "core:log"
 import "core:runtime"
 import "core:intrinsics"
+import windows "core:sys/windows"
 
 on_assert_fail :: proc(prefix, message: string, loc: runtime.Source_Code_Location) -> ! {
     using libpdb
@@ -24,7 +25,8 @@ main ::proc() {
     //odin run test -debug -out:test\demo.exe > .\build\demo.log
     //odin run test.odin -file -out:build\test.pdb -- .\test\demo.pdb
     //odin run test.odin -file -out:build\test.exe -debug -- .\build\test.pdb
-    context.assertion_failure_proc = on_assert_fail
+    //context.assertion_failure_proc = on_assert_fail
+    windows.AddVectoredExceptionHandler(1, libpdb.dump_stack_trace_on_exception)
 
     context.logger.lowest_level = .Debug
     log_proc :: proc(data: rawptr, level: log.Level, text: string, options: log.Options, location:= #caller_location) {
@@ -45,7 +47,11 @@ main ::proc() {
     }
 
     if len(os.args) < 2 {
-        test_dump_stack()
+        aov := make([]uint, 32)
+        for i in 0..=32 {
+            fmt.print(aov[i])
+        }
+        //test_dump_stack()
         return
     }
     path, _ := strings.replace_all(os.args[1], "\\", "/")
