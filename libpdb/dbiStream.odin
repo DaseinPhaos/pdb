@@ -200,8 +200,8 @@ SlimDbiData :: struct {
 }
 @private
 _cmp_sc :: #force_inline proc(l, r: SlimDbiSecContr) -> int {
-    if l.section < r.section do return -1
-    else if l.section > r.section do return 1
+    if l.secIdx < r.secIdx do return -1
+    else if l.secIdx > r.secIdx do return 1
     else if l.offset < r.offset do return -1
     else if l.offset > r.offset do return 1
     return 0
@@ -219,7 +219,7 @@ search_for_section_contribution :: proc(using this: ^SlimDbiData, imgRva : u32le
     }
     if sectionIdx == -1 do return -1
     // bisearch for module
-    ti := SlimDbiSecContr{offsetInSection, u16le(sectionIdx+1), 0}
+    ti := SlimDbiSecContr{PESectionOffset{offsetInSection, u16le(sectionIdx+1),}, 0}
     lo, hi := 0, (len(contributions)-1)
     if hi < 0 || _cmp_sc(ti, contributions[lo]) < 0 do return -1
     if _cmp_sc(contributions[hi], ti) < 0 do return int(hi)
@@ -244,12 +244,12 @@ SlimDbiMod :: struct {
     symByteSize       : u32le,
     c11ByteSize       : u32le,
     c13ByteSize       : u32le,
+    secContrOffset    : PESectionOffset, // pdb section offset of its first section contribution. this is useful for module address hashing
     moduleSymStream   : MsfStreamIdx,
 }
 SlimDbiSecContr :: struct {
-    offset : u32le,
-    section: u16le, // 1-indexed section id into []sections
-    module : u16le, // 0-indexed module id into []modules
+    using _secOffset : PESectionOffset,
+    module           : u16le, // 0-indexed module id into []modules
 }
 SlimDbiSecInfo :: struct {
     name    : PESectionName,
@@ -277,7 +277,7 @@ find_dbi_stream :: proc(streamDir: ^StreamDirectory) -> (ret : SlimDbiData) {
         defer assert(this.offset == substreamEnd)
         for this.offset < substreamEnd {
             modi := readv(this, DbiModInfo)
-            push(&stack, SlimDbiMod{modi.moduleName, modi.objFileName, modi.symByteSize, modi.c11ByteSize, modi.c13ByteSize, modi.moduleSymStream})
+            push(&stack, SlimDbiMod{modi.moduleName, modi.objFileName, modi.symByteSize, modi.c11ByteSize, modi.c13ByteSize, PESectionOffset{offset = modi.sectionContribution.offset, secIdx = modi.sectionContribution.section,}, modi.moduleSymStream})
         }
         if stack.count > 0 {
             ret.modules = make([]SlimDbiMod, stack.count)
@@ -303,7 +303,7 @@ find_dbi_stream :: proc(streamDir: ^StreamDirectory) -> (ret : SlimDbiData) {
             defer this.offset = baseOffset + cast(uint)secContrEntrySize
             secContr := readv(this, DbiSectionContribution)
             lastItem = SlimDbiSecContr{
-                offset = secContr.offset, section = secContr.section, module = secContr.moduleIndex,
+                PESectionOffset{secContr.offset, secContr.section,}, secContr.moduleIndex,
             }
         }
         stack := make_stack(SlimDbiSecContr, int(itemCount), context.temp_allocator)
@@ -314,12 +314,12 @@ find_dbi_stream :: proc(streamDir: ^StreamDirectory) -> (ret : SlimDbiData) {
             secContr := readv(this, DbiSectionContribution)
             if secContr.size == 0 do continue
             //log.debug(secContr)
-            assert(secContr.section > lastItem.section || secContr.offset > lastItem.offset)
-            if secContr.section != lastItem.section || secContr.moduleIndex != lastItem.module {
+            assert(secContr.section > lastItem.secIdx || secContr.offset > lastItem.offset)
+            if secContr.section != lastItem.secIdx || secContr.moduleIndex != lastItem.module {
                 // new
                 push(&stack, lastItem)
                 lastItem = SlimDbiSecContr{
-                    offset = secContr.offset, section = secContr.section, module = secContr.moduleIndex,
+                    {secContr.offset, secContr.section,}, secContr.moduleIndex,
                 }
             } else {
                 // cumulate

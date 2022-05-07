@@ -1,4 +1,3 @@
-// TODO: codebase cleanup
 package test
 import "libpdb"
 import "core:fmt"
@@ -8,18 +7,6 @@ import "core:log"
 import "core:runtime"
 import "core:intrinsics"
 import windows "core:sys/windows"
-
-on_assert_fail :: proc(prefix, message: string, loc: runtime.Source_Code_Location) -> ! {
-    using libpdb
-    traceBuf := make([]StackFrame , 32)
-    traceCount := capture_stack_trace(traceBuf)
-    fmt.printf("%v: %v\nStacktrack[%d]:\n", prefix, message, traceCount)
-    srcCodeLines := parse_stack_trace(traceBuf[:traceCount])
-    for scl in srcCodeLines {
-        fmt.printf("%v:%d:%d: %v()\n", scl.file_path, scl.line, scl.column, scl.procedure)
-    }
-    intrinsics.trap()
-}
 
 main ::proc() {
     //odin run test -debug -out:test\demo.exe > .\build\demo.log
@@ -47,11 +34,7 @@ main ::proc() {
     }
 
     if len(os.args) < 2 {
-        aov := make([]uint, 32)
-        for i in 0..=32 {
-            fmt.print(aov[i])
-        }
-        //test_dump_stack()
+        test_dump_stack()
         return
     }
     path, _ := strings.replace_all(os.args[1], "\\", "/")
@@ -87,7 +70,11 @@ bar :: proc() {
     // for scl in srcCodeLines {
     //     fmt.printf("%v:%d:%d:%v()\n", scl.file_path, scl.line, scl.column, scl.procedure)
     // }
-    assert(false, "Failed!")
+    //assert(false, "Failed!")
+    aov := make([]uint, 32)
+    for i in 0..=32 {
+        fmt.print(aov[i])
+    }
 }
 
 test_exe :: proc(file_content: []byte) {

@@ -164,7 +164,7 @@ StackFrame :: struct {
     funcEnd     : u32,  // rva marking the end of the function
 }
 
-capture_stack_trace :: #force_no_inline proc(traceBuf: []StackFrame) -> (count : uint) {
+capture_stack_trace :: #force_no_inline proc "contextless" (traceBuf: []StackFrame) -> (count : uint) {
     fImgBase : DWORD64
     ctx : CONTEXT
     RtlCaptureContext(&ctx)
@@ -206,7 +206,6 @@ capture_strack_trace_from_context :: proc "contextless" (ctx: ^CONTEXT, traceBuf
 
 _PEModuleInfo :: struct {
     filePath     : string,
-    sectionTable : []PESectionHeader,
     pdbPath      : string,
     streamDir    : StreamDirectory,
     namesStream  : BlocksReader,
@@ -216,15 +215,17 @@ _PEModuleInfo :: struct {
 parse_stack_trace :: proc(stackTrace: []StackFrame) -> (srcCodeLocs :[]runtime.Source_Code_Location) {
     srcCodeLocs = make([]runtime.Source_Code_Location, len(stackTrace))
     miMap := make(map[uintptr]_PEModuleInfo, 8, context.temp_allocator)
+    mdMap := make(map[uintptr]SlimModData, 8, context.temp_allocator)
     for stackFrame, i in stackTrace {
         mi, ok := miMap[stackFrame.imgBaseAddr]
         if !ok {
+            // PEModuleInfo not found for this module, load them in
             defer miMap[stackFrame.imgBaseAddr] = mi
             nameBuf : [windows.MAX_PATH]u16
             pBuf := &nameBuf[0]
             nameLen := windows.GetModuleFileNameW(windows.HMODULE(stackFrame.imgBaseAddr), pBuf, len(nameBuf))
             mi.filePath = windows.wstring_to_utf8(pBuf, cast(int)nameLen)
-            //log.debugf("getting module name for image at 0x%p, name[%d]:%v", stackFrame.imgBaseAddr, nameLen, mi.filePath)
+            // TODO(opt): we don't need to load the entire file.
             peFileContent, peFileOk := os.read_entire_file(mi.filePath)
             if !peFileOk { // ? what else can be done?
                 continue
@@ -232,8 +233,6 @@ parse_stack_trace :: proc(stackTrace: []StackFrame) -> (srcCodeLocs :[]runtime.S
             // fetch info from PE file
             peReader := make_dummy_reader(peFileContent)
             coffHdr, optHdr, dataDirs, sectionTable := parse_pe_file(&peReader)
-            //log.debug(coffHdr)
-            mi.sectionTable = sectionTable
             if dataDirs.debug.size > 0 {
                 ddEntrys := slice.from_ptr(
                     (^PEDebugDirEntry)((stackFrame.imgBaseAddr) + uintptr(dataDirs.debug.rva)),
@@ -241,7 +240,8 @@ parse_stack_trace :: proc(stackTrace: []StackFrame) -> (srcCodeLocs :[]runtime.S
                 )
                 for dde in ddEntrys {
                     if dde.debugType != .CodeView do continue
-                    // because image is loaded, we can just look at the struct in memory
+                    // because image is supposed to beloaded, we can just look at the struct in memory
+                    // if we're dealing with rvas from another process this wouldn't work
                     pPdbBase := (^PECodeViewInfoPdb70Base)((stackFrame.imgBaseAddr) + uintptr(dde.rawDataAddr))
                     if pPdbBase.cvSignature != PECodeView_Signature_RSDS {
                         log.warnf("unrecognized CV_INFO signature: %x", pPdbBase.cvSignature)
@@ -252,6 +252,8 @@ parse_stack_trace :: proc(stackTrace: []StackFrame) -> (srcCodeLocs :[]runtime.S
                     break
                 }
             }
+            // TODO: if pdbPath is still not found by now, we should look into other possible symbol locations for them
+            // TODO(opt): we shouldn't read the entire pdb file here at once
             if pdbContent, pdbOk := os.read_entire_file(mi.pdbPath); pdbOk {
                 if sb, sbOk := read_superblock(pdbContent); sbOk {
                     mi.streamDir = read_stream_dir(&sb, pdbContent)
@@ -261,54 +263,50 @@ parse_stack_trace :: proc(stackTrace: []StackFrame) -> (srcCodeLocs :[]runtime.S
                     mi.dbiData = find_dbi_stream(&mi.streamDir)
                 }
             }
-            // we need: relevant DbiModInfos, also a section contribution substream that our rva's can be used for searching
         }
-        //log.debugf("reading module name for image at 0x%p, name:%v", stackFrame.imgBaseAddr, mi.filePath)
         pcRva := u32le(stackFrame.progCounter - stackFrame.imgBaseAddr)
         funcRva := u32le(stackFrame.funcBegin)
-        // TODO: modMap := make(map[u64]_PEModuleInfo, 8, context.temp_allocator)
         if sci := search_for_section_contribution(&mi.dbiData, funcRva); sci >= 0 {
             sc := mi.dbiData.contributions[sci]
             modi := mi.dbiData.modules[sc.module]
-            //log.debugf("secCon[%d]:%v, %v", sci, sc, modi)
             funcOffset := PESectionOffset {
-                offset = funcRva - mi.dbiData.sections[sc.section-1].vAddr, //???
-                secIdx = sc.section,
+                offset = funcRva - mi.dbiData.sections[sc.secIdx-1].vAddr,
+                secIdx = sc.secIdx,
             }
-            modData := resolve_mod_stream(&mi.streamDir, &modi)
-            //log.debug("mod data resolved")
+            // address of module's first mc in memory. This should be unique
+            // per module across the whole process, making it the perfect
+            // hash key for our modData map
+            mdAddress := stackFrame.imgBaseAddr + uintptr(mi.dbiData.sections[modi.secContrOffset.secIdx-1].vAddr) + uintptr(modi.secContrOffset.offset)
+            modData, modDataOk := mdMap[mdAddress]
+            if !modDataOk {
+                modData = resolve_mod_stream(&mi.streamDir, &modi)
+                mdMap[mdAddress] = modData
+            }
             p, lb, l := locate_pc(&modData, funcOffset, pcRva-funcRva)
             if p != nil {
                 srcCodeLocs[i].procedure = p.name
                 srcCodeLocs[i].line = i32(l.lineStart)
                 srcCodeLocs[i].column = i32(l.colStart)
-                //log.debugf("proc resolved: %v", p.name)
             }
             if lb != nil && lb.nameOffset > 0 {
-                // TODO:caching?
                 mi.namesStream.offset = uint(lb.nameOffset)
                 srcCodeLocs[i].file_path = read_length_prefixed_name(&mi.namesStream)
-                //log.debugf("name: %v at %v", srcCodeLocs[i].file_path, lb.nameOffset)
             } else {
                 srcCodeLocs[i].file_path = modi.moduleName
             }
         } else {
-            srcCodeLocs[i].file_path = mi.filePath //?
+            srcCodeLocs[i].file_path = mi.filePath // pdb failed to provide us with a valid source file name, fallback to filePath provided by the image
         }
-        
-        //log.debug(mi.pdbPath)
-        //log.debug(srcCodeLocs[i])
     }
     return
 }
 
-
 dump_stack_trace_on_exception :: proc "stdcall" (ExceptionInfo: ^windows.EXCEPTION_POINTERS) -> windows.LONG {
-    context = runtime.default_context() // TODO: use another allocator somehow
+    context = runtime.default_context() // TODO: use another allocator
     ctxt := cast(^CONTEXT)ExceptionInfo.ContextRecord
     traceBuf : [32]StackFrame
     traceCount := capture_strack_trace_from_context(ctxt, traceBuf[:])
-    //fmt.printf("%v: %v\nStacktrack[%d]:\n", prefix, message, traceCount)
+    // TODO: exception information should be printed here as well.
     fmt.printf("Stacktrack[%d]:\n", traceCount)
     srcCodeLines := parse_stack_trace(traceBuf[:traceCount])
     for scl in srcCodeLines {

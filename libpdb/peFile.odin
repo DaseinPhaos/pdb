@@ -168,10 +168,7 @@ PESectionHeader :: struct #packed {
     lineNum : u16le, // number of line-number entries
     flags   : PESectionFlags,
 }
-PESectionName :: struct #raw_union {
-    buf : [8]byte,
-    num : u64le,
-}
+PESectionName :: struct #raw_union {buf: [8]byte, num: u64le,}
 peSectionName_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
     n := arg.(PESectionName)
     io.write_rune(fi.writer, '"', &fi.n)
@@ -184,10 +181,7 @@ peSectionName_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
     io.write_rune(fi.writer, ')', &fi.n)
     return true
 }
-PESectionOffset :: struct #packed {
-    offset : u32le,
-    secIdx : u16le,
-}
+PESectionOffset :: struct #packed {offset: u32le, secIdx: u16le,}
 PESectionFlags :: enum u32le {
     None = 0,
     NoPad = 0x0000_0008, // obsolete, replaced by Align1
@@ -267,7 +261,6 @@ PECodeViewInfoPdb70Base :: struct #packed {
 }
 PECodeView_Signature_RSDS :u32le: 0x5344_5352
 
-
 parse_pe_file :: proc(this: ^BlocksReader) -> (coffHdr : CoffFileHeader, optHdr: union{PEOptHdr, PEOptHdrPlus}, dataDirs : PEOptHdr_DataDirectories, sectionTable: []PESectionHeader) {
     this.offset = PE_Signature_OffsetIdxPos
     sigOffset := readv(this, u32le)
@@ -294,18 +287,14 @@ parse_pe_file :: proc(this: ^BlocksReader) -> (coffHdr : CoffFileHeader, optHdr:
         case: assert(false)
         }
         baseOffset := this.offset
-        //defer this.offset = baseOffset + uint(dataDirCount)*size_of(PEOptHdr_DataDirectory)
-        // dataDirs = readv(this, PEOptHdr_DataDirectories)
         ddSlice := slice.from_ptr(cast(^PEOptHdr_DataDirectory)&dataDirs, int(dataDirCount))
         for i in 0..<len(ddSlice) {
             ddSlice[i] = readv(this, PEOptHdr_DataDirectory)
         }
-        //log.debug(dataDirs)
     }
     if coffHdr.numSecs > 0 {
         sectionTable = read_packed_array(this, uint(coffHdr.numSecs), PESectionHeader)
     }
-    //log.debug(sectionTable)
     return
 }
 
