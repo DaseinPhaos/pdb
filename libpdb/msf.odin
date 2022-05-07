@@ -10,7 +10,7 @@ import "core:io"
 
 // SuperBlock|FPM1|FPM2|DataBlocks[BlockSize-3]|FPM1|FPM2|DataBlocks[BlockSize-3])+
 
-FileMagic :string= "Microsoft C/C++ MSF 7.00\r\n\x1a\x44\x53\x00\x00\x00"
+FileMagic :string: "Microsoft C/C++ MSF 7.00\r\n\x1a\x44\x53\x00\x00\x00"
 SuperBlock :: struct #packed {
     //fileMagic : [len(SuperBlock_FileMagic)]byte, // == SuperBlock_FileMagic
     blockSize : u32le, // block size of the internal file system == 4096
@@ -26,7 +26,7 @@ StreamDirectory :: struct {
     numStreams : u32le,
     streamSizes : []u32le, // len == numStreams. size of each stream in bytes
     streamBlocks : [][]u32le, // blockIndices = StreamBlocks[streamIdx]. len(blockIndices) == ceil(streamSizes[streamIdx]/superBlock.blockSize)
-    data: []byte, 
+    r : io.Reader,
     blockSize: u32le,
 }
 MsfStreamIdx :: distinct u16le
@@ -35,16 +35,21 @@ stream_idx_valid ::#force_inline proc(idx: MsfStreamIdx) -> bool {return idx < M
 
 get_stream_reader :: #force_inline proc(using this: ^StreamDirectory, streamIdx : MsfStreamIdx) -> BlocksReader {
     assert(stream_idx_valid(streamIdx))
-    return make_reader_from_indiced_buf(data, streamBlocks[streamIdx], int(blockSize), streamSizes[streamIdx])
+    return make_reader_from_indiced_buf(r, streamBlocks[streamIdx], int(blockSize), streamSizes[streamIdx])
 }
 
-read_superblock :: proc(data: []byte) -> (this : SuperBlock, success: bool) {
+read_superblock :: proc(r: io.Reader) -> (this : SuperBlock, success: bool) {
+    SuperBlock_ReadSize :: len(FileMagic) + size_of(SuperBlock)
     success = false
-    if len(data)  < len(FileMagic) + size_of(SuperBlock) {
-        log.debug("data len too small")
+    if r->impl_size() < SuperBlock_ReadSize {
+        log.debug("stream len too small to be a valid pdb file")
         return
     }
-
+    data: [SuperBlock_ReadSize]byte
+    if nRead, err := io.read(r, data[:]); err != nil || nRead != len(data) {
+        log.debugf("stream read failed with %v, nRead:%d", err, nRead)
+        return
+    }
     if strings.compare(strings.string_from_ptr(&data[0], len(FileMagic)), FileMagic) != 0 {
         log.debug("FileMagic mismatch")
         return
@@ -55,19 +60,27 @@ read_superblock :: proc(data: []byte) -> (this : SuperBlock, success: bool) {
     return
 }
 
-read_stream_dir :: proc(using this: ^SuperBlock, data: []byte) -> (sd: StreamDirectory) {
-    sdmOffset := blockMapAddr * blockSize
-    sdmSize := ceil_div(numDirectoryBytes, blockSize)
-    breader := make_reader_from_indiced_buf(data, transmute([]u32le)mem.Raw_Slice{&data[sdmOffset],cast(int)sdmSize}, int(blockSize), sdmSize*blockSize)
-    // breader := BlocksReader{
-    //     data = data, blockSize = uint(blockSize), indices = transmute([]u32le)mem.Raw_Slice{&data[sdmOffset],cast(int)sdmSize},
-    // }
+read_stream_dir :: proc(using this: ^SuperBlock, r: io.Reader) -> (sd: StreamDirectory, success: bool) {
+    success = false
+    if seekN, seekErr := r->impl_seek(i64(blockMapAddr * blockSize), .Start); seekErr != nil {
+        log.debugf("seek failed with %v", seekErr)
+        return
+    }
+    sdBlockCount := ceil_div(numDirectoryBytes, blockSize)
+    iData := make([]byte, sdBlockCount*size_of(u32le), context.temp_allocator)
+    defer delete(iData, context.temp_allocator)
+    if nRead, readErr := r->impl_read(iData); readErr != nil || nRead != len(iData) {
+        log.debugf("read block map failed with %v, nRead: %d, should be %d", readErr, nRead, numDirectoryBytes)
+        return
+    }
+    log.debugf("read sd with %v", this)
+    breader := make_reader_from_indiced_buf(r, transmute([]u32le)mem.Raw_Slice{&iData[0], int(sdBlockCount)}, int(blockSize), numDirectoryBytes)
 
     sd.numStreams = readv(&breader, u32le)
-    //fmt.printf("number of streams %v\n", sd.numStreams)
+    fmt.printf("number of streams %v\n", sd.numStreams)
     sd.streamSizes = make([]u32le, sd.numStreams)
     sd.streamBlocks = make([][]u32le, sd.numStreams)
-    sd.data = data
+    sd.r = r
     sd.blockSize = blockSize
     for i in 0..<sd.numStreams {
         sd.streamSizes[i] = readv(&breader, u32le)
@@ -85,6 +98,15 @@ read_stream_dir :: proc(using this: ^SuperBlock, data: []byte) -> (sd: StreamDir
             streamBlock[j] = readv(&breader, u32le)
         }
     }
+    success = true
+    return
+}
+
+find_stream_dir :: proc(r: io.Reader) -> (sd: StreamDirectory, success: bool) {
+    success = false
+    pdbContent := read_superblock(r) or_return
+    sd = read_stream_dir(&pdbContent, r) or_return
+    success = true
     return
 }
 
@@ -102,16 +124,18 @@ make_dummy_reader :: proc(data: []byte) -> BlocksReader {
         size = len(data),
     }
 }
-make_reader_from_indiced_buf :: proc(data: []byte, indices: []u32le, blockSize: int, totalSize: u32le) -> BlocksReader {
+make_reader_from_indiced_buf :: proc(r: io.Reader, indices: []u32le, blockSize: int, totalSize: u32le) -> BlocksReader {
     buf := make([]byte, cast(uint)totalSize)
     for i in 0..<len(indices)-1 {
-        isrc := int(indices[i])
-        intrinsics.mem_copy_non_overlapping(&buf[i*blockSize], &data[isrc*blockSize], blockSize)
+        isrc := int(indices[i])*blockSize
+        r->impl_seek(i64(isrc), .Start)
+        r->impl_read(buf[i*blockSize:(i+1)*blockSize])
     }
     if len(indices) > 0 { // last buf
         i := len(indices) - 1
-        isrc := int(indices[i])
-        intrinsics.mem_copy_non_overlapping(&buf[i*blockSize], &data[isrc*blockSize], len(buf)-i*blockSize)
+        isrc := int(indices[i])*blockSize
+        r->impl_seek(i64(isrc), .Start)
+        r->impl_read(buf[i*blockSize:])
     }
     return make_dummy_reader(buf)
 }

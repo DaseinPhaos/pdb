@@ -6,6 +6,8 @@ import "core:strings"
 import "core:log"
 import "core:runtime"
 import "core:intrinsics"
+import "core:bytes"
+import "core:io"
 import windows "core:sys/windows"
 
 main ::proc() {
@@ -63,18 +65,23 @@ foo :: proc() {
 }
 
 bar :: proc() {
-    // using libpdb
-    // traceBuf := make([]StackFrame , 32)
-    // traceCount := capture_stack_trace(traceBuf)
-    // srcCodeLines := parse_stack_trace(traceBuf[:traceCount])
-    // for scl in srcCodeLines {
-    //     fmt.printf("%v:%d:%d:%v()\n", scl.file_path, scl.line, scl.column, scl.procedure)
-    // }
-    //assert(false, "Failed!")
-    aov := make([]uint, 32)
-    for i in 0..=32 {
-        fmt.print(aov[i])
+    using libpdb
+    when true {
+        aov := make([]uint, 32)
+        for i in 0..=32 {
+            fmt.print(aov[i])
+        }
+    } else {
+        traceBuf := make([]StackFrame , 32)
+        traceCount := capture_stack_trace(traceBuf)
+        srcCodeLines := parse_stack_trace(traceBuf[:traceCount])
+        for scl in srcCodeLines {
+            fmt.printf("%v:%d:%d:%v()\n", scl.file_path, scl.line, scl.column, scl.procedure)
+        }
     }
+    
+    //assert(false, "Failed!")
+    
 }
 
 test_exe :: proc(file_content: []byte) {
@@ -84,15 +91,19 @@ test_exe :: proc(file_content: []byte) {
 }
 
 test_pdb :: proc(file_content : []byte) {
-    
+    br : bytes.Reader
+    bytes.reader_init(&br, file_content)
+    bs := bytes.reader_to_stream(&br)
+    bsr := io.Reader{bs}
     using libpdb
-    sb, sbOk := read_superblock(file_content)
+    sb, sbOk := read_superblock(bsr)
     if !sbOk {
         log.errorf("Unable to read superBlock")
         return
     }
     log.debugf("superblock: %v", sb)
-    streamDir := read_stream_dir(&sb, file_content)
+    streamDir, streamDirOk := read_stream_dir(&sb, bsr)
+    assert(streamDirOk)
     //log.debugf("streamDir: %v\n", streamDir)
 
     pdbSr := get_stream_reader(&streamDir, PdbStream_Index)

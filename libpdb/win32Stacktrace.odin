@@ -6,6 +6,7 @@ import "core:strings"
 import "core:intrinsics"
 import "core:runtime"
 import "core:fmt"
+import "core:io"
 import windows "core:sys/windows"
 foreign import ntdll_lib "system:ntdll.lib"
 
@@ -207,6 +208,7 @@ capture_strack_trace_from_context :: proc "contextless" (ctx: ^CONTEXT, traceBuf
 _PEModuleInfo :: struct {
     filePath     : string,
     pdbPath      : string,
+    pdbHandle    : os.Handle, // TODO: close this
     streamDir    : StreamDirectory,
     namesStream  : BlocksReader,
     dbiData      : SlimDbiData,
@@ -215,7 +217,14 @@ _PEModuleInfo :: struct {
 parse_stack_trace :: proc(stackTrace: []StackFrame) -> (srcCodeLocs :[]runtime.Source_Code_Location) {
     srcCodeLocs = make([]runtime.Source_Code_Location, len(stackTrace))
     miMap := make(map[uintptr]_PEModuleInfo, 8, context.temp_allocator)
+    defer {
+        for _, pemi in miMap {
+            os.close(pemi.pdbHandle) // close file
+        }
+        delete(miMap)
+    }
     mdMap := make(map[uintptr]SlimModData, 8, context.temp_allocator)
+    defer delete(mdMap)
     for stackFrame, i in stackTrace {
         mi, ok := miMap[stackFrame.imgBaseAddr]
         if !ok {
@@ -253,10 +262,11 @@ parse_stack_trace :: proc(stackTrace: []StackFrame) -> (srcCodeLocs :[]runtime.S
                 }
             }
             // TODO: if pdbPath is still not found by now, we should look into other possible symbol locations for them
-            // TODO(opt): we shouldn't read the entire pdb file here at once
-            if pdbContent, pdbOk := os.read_entire_file(mi.pdbPath); pdbOk {
-                if sb, sbOk := read_superblock(pdbContent); sbOk {
-                    mi.streamDir = read_stream_dir(&sb, pdbContent)
+            if pdbFile, pdbErr := os.open(mi.pdbPath); pdbErr == 0 {
+                mi.pdbHandle = pdbFile
+                pdbr := io.Reader{os.stream_from_handle(pdbFile)}
+                if streamDir, sdOk := find_stream_dir(pdbr); sdOk {
+                    mi.streamDir = streamDir
                     pdbSr := get_stream_reader(&mi.streamDir, PdbStream_Index)
                     pdbHeader, nameMap, pdbFeatures := parse_pdb_stream(&pdbSr)
                     mi.namesStream = get_stream_reader(&mi.streamDir, find_named_stream(nameMap, NamesStream_Name))
