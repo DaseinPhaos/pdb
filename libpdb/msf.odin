@@ -132,6 +132,19 @@ _can_read_packed :: proc ($T: typeid) -> bool {
 
 MsfNotPackedMarker :: struct {}
 
+read_packed_array :: proc(using this: ^BlocksReader, count: uint, $T: typeid) -> (ret: []T) {
+    when ODIN_DEBUG==true {
+        if (!_can_read_packed(T))  {
+            log.errorf("Invalid type: %v", type_info_of(T).variant)
+            assert(false, "type cannot be read") // I wish this could've been constexpred
+        }
+    }
+    endOffset := offset + count * size_of(T)
+    assert(endOffset <= this.size)
+    defer offset = endOffset
+    return mem.slice_ptr(cast(^T)&data[offset], int(count))
+}
+
 read_packed :: #force_inline proc(using this: ^BlocksReader, $T: typeid) -> (ret: T)
     where !intrinsics.type_has_field(T, "_base"),
           !intrinsics.type_is_subtype_of(T, MsfNotPackedMarker) {
@@ -184,16 +197,7 @@ read_length_prefixed_name :: proc(this: ^BlocksReader) -> (ret: string) {
     }
     defer this.offset+=uint(nameLen+1) // eat trailing \0 as well
     if nameLen == 0 do return ""
-    when true {
-        return strings.string_from_ptr(&this.data[this.offset], nameLen)
-    } else {
-        //nameLen := cast(int)read_int_record(this)
-        a := make([]byte, nameLen)
-        for i in 0..<nameLen {
-            a[i] = readv(this, byte)
-        }
-        return strings.string_from_ptr(&a[0], nameLen)
-    }
+    return strings.string_from_ptr(&this.data[this.offset], nameLen)
 }
 
 @private

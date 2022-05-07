@@ -425,10 +425,7 @@ CvsFunctionList :: struct {
 read_cvsFunctionList :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T)
     where intrinsics.type_is_subtype_of(T, CvsFunctionList) {
         count := readv(this, u32le)
-        ret.funcs = make([]TypeIndex, uint(count))
-        for i in 0..<uint(count) {
-            ret.funcs[i] = readv(this, TypeIndex)
-        }
+        ret.funcs = read_packed_array(this, uint(count), TypeIndex)
         return
 }
 
@@ -544,10 +541,7 @@ read_cvsLvarAddrRangeAndGap :: proc (this: ^BlocksReader, recLen : u16le, headLe
     gapsSize := int(recLen) - size_of(CvsRecordKind) - headLen - size_of(ret.range)
     gapsCount := gapsSize / size_of(CvsLvarAddrGap)
     if gapsCount <= 0 do return
-    ret.gaps = make([]CvsLvarAddrGap, gapsCount)
-    for i in 0..<gapsCount {
-        ret.gaps[i] = readv(this, CvsLvarAddrGap)
-    }
+    ret.gaps = read_packed_array(this, uint(gapsCount), CvsLvarAddrGap)
     return
 }
 

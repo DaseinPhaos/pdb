@@ -58,10 +58,7 @@ parse_pdb_stream :: proc(this: ^BlocksReader) -> (header: PdbStreamHeader, nameM
 
     nameStringLen := readv(this, u32le)
     //log.debugf("nameStringLen: %v", nameStringLen)
-    nameMap.strBuf = make([]byte, nameStringLen)
-    for i in 0..<nameStringLen {
-        nameMap.strBuf[i] = readv(this, byte)
-    }
+    nameMap.strBuf = read_packed_array(this, uint(nameStringLen), byte)
     namesTable := read_hash_table(this, u32le)
     nameMap.names = make([]PdbNamedStream, namesTable.size)
     nameIdx := 0
@@ -79,10 +76,7 @@ parse_pdb_stream :: proc(this: ^BlocksReader) -> (header: PdbStreamHeader, nameM
     }
 
     featuresLen := (this.size - this.offset)/size_of(PdbRaw_FeatureSig)
-    features = make([]PdbRaw_FeatureSig, featuresLen)
-    for i in 0..<len(features) {
-        features[i] = readv(this, PdbRaw_FeatureSig)
-    }
+    features = read_packed_array(this, uint(featuresLen), PdbRaw_FeatureSig)
 
     return
 }

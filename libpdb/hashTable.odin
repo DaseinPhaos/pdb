@@ -60,9 +60,6 @@ read_hash_table :: proc(using this: ^BlocksReader, $Value: typeid) -> (ret:PdbHa
 
 read_bit_vector :: proc(using this: ^BlocksReader) -> (ret: BitVector) {
     wordCount := readv(this, u32le)
-    ret.words = make([]u32le, wordCount)
-    for i in 0..<wordCount {
-        ret.words[i] = readv(this, u32le)
-    }
+    ret.words = read_packed_array(this, uint(wordCount), u32le)
     return
 }

@@ -310,10 +310,7 @@ CvtlBuildInfo :: struct {
 }
 read_cvtlBuildInfo :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where intrinsics.type_is_subtype_of(T, CvtlBuildInfo) {
     argCount := readv(this, u16le)
-    ret.args = make([]CvItemId, argCount)
-    for i in 0..<argCount {
-        ret.args[i] = readv(this, CvItemId)
-    }
+    ret.args = read_packed_array(this, uint(argCount), CvItemId)
     return
 }
 
@@ -352,10 +349,7 @@ CvtlProc_ArgList :: struct {
 }
 read_cvtfArgList :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where intrinsics.type_is_subtype_of(T, CvtlProc_ArgList) {
     argCount := readv(this, u32le)
-    ret.args = make([]TypeIndex, argCount)
-    for i in 0..<argCount {
-        ret.args[i] = readv(this, TypeIndex)
-    }
+    ret.args = read_packed_array(this, uint(argCount), TypeIndex)
     return
 }
 

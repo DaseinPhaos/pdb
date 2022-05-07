@@ -303,10 +303,7 @@ parse_pe_file :: proc(this: ^BlocksReader) -> (coffHdr : CoffFileHeader, optHdr:
         //log.debug(dataDirs)
     }
     if coffHdr.numSecs > 0 {
-        sectionTable = make([]PESectionHeader, coffHdr.numSecs)
-        for i in 0..<len(sectionTable) {
-            sectionTable[i] = readv(this, PESectionHeader)
-        }
+        sectionTable = read_packed_array(this, uint(coffHdr.numSecs), PESectionHeader)
     }
     //log.debug(sectionTable)
     return
