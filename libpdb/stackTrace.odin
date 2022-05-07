@@ -214,7 +214,7 @@ _PEModuleInfo :: struct {
     dbiData      : SlimDbiData,
 }
 
-parse_stack_trace :: proc(stackTrace: []StackFrame) -> (srcCodeLocs :[]runtime.Source_Code_Location) {
+parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool) -> (srcCodeLocs :[]runtime.Source_Code_Location) {
     srcCodeLocs = make([]runtime.Source_Code_Location, len(stackTrace))
     miMap := make(map[uintptr]_PEModuleInfo, 8, context.temp_allocator)
     defer {
@@ -236,31 +236,47 @@ parse_stack_trace :: proc(stackTrace: []StackFrame) -> (srcCodeLocs :[]runtime.S
             mi.filePath = windows.wstring_to_utf8(pBuf, cast(int)nameLen)
             peFile, peFileErr := os.open(mi.filePath)
             if peFileErr != 0 {
-                // ? what can we do now?
+                // skip images that we cannot open
                 continue
             }
-            dataDirs := read_pe_data_dirs(os.stream_from_handle(peFile))
-            os.close(peFile)
-            if dataDirs.debug.size > 0 {
+            defer os.close(peFile)
+            dataDirs, dde := parse_pe_data_dirs(os.stream_from_handle(peFile))
+            if dataDirs.debug.size > 0 && dde == nil {
                 ddEntrys := slice.from_ptr(
                     (^PEDebugDirEntry)((stackFrame.imgBaseAddr) + uintptr(dataDirs.debug.rva)),
                     int(dataDirs.debug.size / size_of(PEDebugDirEntry)),
                 )
                 for dde in ddEntrys {
                     if dde.debugType != .CodeView do continue
-                    // because image is supposed to beloaded, we can just look at the struct in memory
-                    // if we're dealing with rvas from another process this wouldn't work
-                    pPdbBase := (^PECodeViewInfoPdb70Base)((stackFrame.imgBaseAddr) + uintptr(dde.rawDataAddr))
-                    if pPdbBase.cvSignature != PECodeView_Signature_RSDS {
-                        log.warnf("unrecognized CV_INFO signature: %x", pPdbBase.cvSignature)
-                        continue
+                    log.debug(dde)
+                    if sameProcess {
+                        // image is supposed to beloaded, we can just look at the struct in memory
+                        pPdbBase := (^PECodeViewInfoPdb70Base)((stackFrame.imgBaseAddr) + uintptr(dde.rawDataAddr))
+                        if pPdbBase.cvSignature != PECodeView_Signature_RSDS do continue
+                        pPdbPath := (^byte)(uintptr(pPdbBase) + cast(uintptr)size_of(PECodeViewInfoPdb70Base))
+                        mi.pdbPath = strings.string_from_nul_terminated_ptr(pPdbPath, int(dde.dataSize-size_of(PECodeViewInfoPdb70Base)))
+                    } else {
+                        // otherwise we need to seek to it on disk
+                        peStream := os.stream_from_handle(peFile)
+                        if n, err := peStream->impl_seek(i64(dde.pRawData), .Start); err != nil || n != i64(dde.pRawData) do continue
+                        buf := make([]byte, int(dde.dataSize))
+                        if n, err := peStream->impl_read(buf[:]); err != nil || n != len(buf) {
+                            delete(buf)
+                            continue
+                        }
+                        pdbr := make_dummy_reader(buf)
+                        pdbInfo := readv(&pdbr, PECodeViewInfoPdb70)
+                        if pdbInfo.cvSignature != PECodeView_Signature_RSDS {
+                            delete(buf)
+                            continue
+                        }
+                        mi.pdbPath = pdbInfo.name
                     }
-                    pPdbPath := (^byte)(uintptr(pPdbBase) + cast(uintptr)size_of(PECodeViewInfoPdb70Base))
-                    mi.pdbPath = strings.string_from_nul_terminated_ptr(pPdbPath, int(dde.dataSize-size_of(PECodeViewInfoPdb70Base)))
+                    
                     break
                 }
             }
-            // TODO: if pdbPath is still not found by now, we should look into other possible symbol locations for them
+            // TODO: if pdbPath is still not found by now, we should look into other possible directories for them
             if pdbFile, pdbErr := os.open(mi.pdbPath); pdbErr == 0 {
                 mi.pdbHandle = pdbFile
                 pdbr := io.Reader{os.stream_from_handle(pdbFile)}
@@ -282,9 +298,9 @@ parse_stack_trace :: proc(stackTrace: []StackFrame) -> (srcCodeLocs :[]runtime.S
                 offset = funcRva - mi.dbiData.sections[sc.secIdx-1].vAddr,
                 secIdx = sc.secIdx,
             }
-            // address of module's first mc in memory. This should be unique
-            // per module across the whole process, making it the perfect
-            // hash key for our modData map
+            // address of module's first section contribution in memory. This should 
+            // be unique per module across the whole process, making it usable as
+            // hash keys for the mod data map
             mdAddress := stackFrame.imgBaseAddr + uintptr(mi.dbiData.sections[modi.secContrOffset.secIdx-1].vAddr) + uintptr(modi.secContrOffset.offset)
             modData, modDataOk := mdMap[mdAddress]
             if !modDataOk {
@@ -317,7 +333,7 @@ dump_stack_trace_on_exception :: proc "stdcall" (ExceptionInfo: ^windows.EXCEPTI
     traceCount := capture_strack_trace_from_context(ctxt, traceBuf[:])
     // TODO: exception information should be printed here as well.
     fmt.printf("Stacktrack[%d]:\n", traceCount)
-    srcCodeLines := parse_stack_trace(traceBuf[:traceCount])
+    srcCodeLines := parse_stack_trace(traceBuf[:traceCount], true)
     for scl in srcCodeLines {
         fmt.printf("%v:%d:%d: %v()\n", scl.file_path, scl.line, scl.column, scl.procedure)
     }

@@ -74,7 +74,7 @@ bar :: proc() {
     } else {
         traceBuf := make([]StackFrame , 32)
         traceCount := capture_stack_trace(traceBuf)
-        srcCodeLines := parse_stack_trace(traceBuf[:traceCount])
+        srcCodeLines := parse_stack_trace(traceBuf[:traceCount], false)
         for scl in srcCodeLines {
             fmt.printf("%v:%d:%d:%v()\n", scl.file_path, scl.line, scl.column, scl.procedure)
         }

@@ -139,10 +139,6 @@ make_reader_from_indiced_buf :: proc(r: io.Reader, indices: []u32le, blockSize: 
     return make_dummy_reader(buf)
 }
 
-get_byte :: #force_inline proc(using this: ^BlocksReader, at: uint) -> byte {
-    return data[at]
-}
-
 @private
 _can_read_packed :: proc ($T: typeid) -> bool {
     if intrinsics.type_is_struct(T) {
@@ -154,13 +150,25 @@ _can_read_packed :: proc ($T: typeid) -> bool {
     return true
 }
 
-MsfNotPackedMarker :: struct {}
+MsfNotPackedMarker :: struct {} // we use this marker to bypass the lacking of `intrinsics.is_struct_packed()` in certain cases
+
+read_packed_from_stream :: #force_inline proc(r: io.Stream, $T: typeid) -> (ret:T, err:io.Error) {
+    when ODIN_DEBUG==true {
+        if (!_can_read_packed(T))  {
+            log.errorf("Invalid type: %v", type_info_of(T).variant)
+            assert(false)
+        }
+    }
+    buf := transmute([]byte)mem.Raw_Slice{&ret, size_of(T),}
+    r->impl_read(buf) or_return
+    return ret, err
+}
 
 read_packed_array :: proc(using this: ^BlocksReader, count: uint, $T: typeid) -> (ret: []T) {
     when ODIN_DEBUG==true {
         if (!_can_read_packed(T))  {
             log.errorf("Invalid type: %v", type_info_of(T).variant)
-            assert(false, "type cannot be read") // I wish this could've been constexpred
+            assert(false)
         }
     }
     endOffset := offset + count * size_of(T)
@@ -175,7 +183,7 @@ read_packed :: #force_inline proc(using this: ^BlocksReader, $T: typeid) -> (ret
         when ODIN_DEBUG==true {
             if (!_can_read_packed(T))  {
                 log.errorf("Invalid type: %v", type_info_of(T).variant)
-                assert(false, "type cannot be read") // I wish this could've been constexpred
+                assert(false)
             }
         }    
         tsize := size_of(T)
@@ -216,7 +224,7 @@ read_length_prefixed_name :: proc(this: ^BlocksReader) -> (ret: string) {
     //nameLen := cast(int)readv(this, u8) //? this is a fucking lie?
     nameLen :int = 0
     for i in this.offset..<this.size {
-        if get_byte(this, i) == 0 do break
+        if this.data[i] == 0 do break
         nameLen+=1
     }
     defer this.offset+=uint(nameLen+1) // eat trailing \0 as well

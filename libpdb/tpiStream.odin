@@ -188,7 +188,7 @@ inspect_cvt :: proc(this: ^BlocksReader, cvtHeader : CvtRecordHeader) {
             endOffset := this.offset + uint(cvtHeader.length) - size_of(CvtRecordKind)
             for this.offset < endOffset {
                 for ;this.offset<endOffset;this.offset+=1 {
-                    if get_byte(this, this.offset) < u8(CvtRecordKind.LF_PAD0) {
+                    if this.data[this.offset] < u8(CvtRecordKind.LF_PAD0) {
                         break
                     }
                 }

@@ -253,7 +253,7 @@ PEOMapRecord :: struct #packed { sourceAddr, targetAddr: u32le, }
 
 PECodeViewInfoPdb70 :: struct {
     using _base : PECodeViewInfoPdb70Base,
-    filename    : string,
+    name        : string,
 }
 PECodeViewInfoPdb70Base :: struct #packed {
     cvSignature : u32le, // should be PECodeView_Signature_RSDS
@@ -262,21 +262,17 @@ PECodeViewInfoPdb70Base :: struct #packed {
 }
 PECodeView_Signature_RSDS :u32le: 0x5344_5352
 
-read_pe_data_dirs :: proc(r: io.Stream) -> (ret : PEOptHdr_DataDirectories) {
-    r->impl_seek(PE_Signature_OffsetIdxPos, .Start)
-    peSigOffset : u32le
-    r->impl_read(transmute([]byte)mem.Raw_Slice{&peSigOffset, size_of(u32le)})
-    //log.debugf("peSigOffset:0x%x(%d)", peSigOffset, peSigOffset)
-    r->impl_seek(i64(peSigOffset), .Start)
+parse_pe_data_dirs :: proc(r: io.Stream) -> (ret : PEOptHdr_DataDirectories, err: io.Error) {
+    r->impl_seek(PE_Signature_OffsetIdxPos, .Start) or_return
+    peSigOffset := read_packed_from_stream(r, u32le) or_return
+    r->impl_seek(i64(peSigOffset), .Start) or_return
     PEPlusDataDirEnd :: size_of(u32le) + size_of(CoffFileHeader) + size_of(PEOptHdrMagic) + size_of(PEOptHdrPlus) + size_of(PEOptHdr_DataDirectories)
     
     buf :[PEPlusDataDirEnd]byte
-    if nRead, rErr := r->impl_read(buf[:]); rErr != nil || nRead != len(buf) {
-        return
-    }
+    r->impl_read(buf[:]) or_return
     br := make_dummy_reader(buf[:])
     _, _, dataDirs := read_pe_headers(&br)
-    return dataDirs
+    return dataDirs, nil
 }
 
 seek_to_pe_headers :: proc(this: ^BlocksReader) {
