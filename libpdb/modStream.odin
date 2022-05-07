@@ -18,14 +18,16 @@ ModStreamSignature :: enum u32le {C7 = 1, C11 = 2, C13 = 4,}
 parse_mod_stream :: proc(streamDir: ^StreamDirectory, modi: ^SlimDbiMod) -> (ret: SlimModData) {
     modSr := get_stream_reader(streamDir, modi.moduleSymStream)
     modHeader := readv(&modSr, ModStreamHeader)
+    ret.modStream = modSr.data[modSr.offset:]
 
     { // symbol substream
         symSubStreamSize := modi.symByteSize - 4
         symSubStreamEnd := modSr.offset + uint(symSubStreamSize)
         defer modSr.offset = symSubStreamEnd
-        pStack := make_stack(CvsProc32, cast(int)symSubStreamSize / ((size_of(CvsProc32)+size_of(CvsRecordKind))*4), context.temp_allocator); defer delete_stack(&pStack)
-        iStack := make_stack(CvsInlineSite, cast(int)symSubStreamSize / ((size_of(CvsInlineSite)+size_of(CvsRecordKind))*4), context.temp_allocator); defer delete_stack(&iStack)
+        pStack := make_stack(SlimCvsProc, cast(int)symSubStreamSize / ((size_of(CvsProc32)+size_of(CvsRecordKind))*4), context.temp_allocator); defer delete_stack(&pStack)
+        iStack := make_stack(SlimCvsInlineSite, cast(int)symSubStreamSize / ((size_of(CvsInlineSite)+size_of(CvsRecordKind))*4), context.temp_allocator); defer delete_stack(&iStack)
         for modSr.offset < symSubStreamEnd {
+            pSelf := CvsOffset(modSr.offset)
             cvsHeader  := readv(&modSr, CvsRecordHeader)
             blockEnd := modSr.offset + uint(cvsHeader.length) - size_of(CvsRecordKind)
             defer modSr.offset = blockEnd
@@ -36,9 +38,9 @@ parse_mod_stream :: proc(streamDir: ^StreamDirectory, modi: ^SlimDbiMod) -> (ret
             case .S_LPROC32_DPC_ID:fallthrough
             case .S_GPROC32:fallthrough
             case .S_GPROC32_ID:
-                push(&pStack, readv(&modSr, CvsProc32))
+                push(&pStack, SlimCvsProc{readv(&modSr, CvsProc32), pSelf})
             case .S_INLINESITE:
-                push(&iStack, readv(&modSr, blockEnd, CvsInlineSite))
+                push(&iStack, SlimCvsInlineSite{readv(&modSr, blockEnd, CvsInlineSite), pSelf})
             }
         }
         if pStack.count > 0 {
@@ -122,10 +124,20 @@ parse_mod_stream :: proc(streamDir: ^StreamDirectory, modi: ^SlimDbiMod) -> (ret
     return
 }
 
+SlimCvsProc :: struct {
+    using _p : CvsProc32,
+    pSelf    : CvsOffset,
+}
+SlimCvsInlineSite :: struct {
+    using _p : CvsInlineSite,
+    pSelf    : CvsOffset,
+}
+
 SlimModData :: struct {
-    procs       : []CvsProc32,
+    modStream   : []byte, // module stream without the stream header, can be directly indexed by Cvs section pointers to read certain stuff
+    procs       : []SlimCvsProc,
     blocks      : []SlimModLineBlock,
-    inlineSites : []CvsInlineSite,
+    inlineSites : []SlimCvsInlineSite,
     // TODO:
 }
 SlimModLineBlock :: struct {
@@ -139,7 +151,7 @@ locate_pc :: proc(using data: ^SlimModData, func: PESectionOffset,  pcFromFunc: 
     for i in 0..<len(procs) {
         //log.debugf("%d/%d:", i, )
         p := &procs[i]
-        if p.seg == func.secIdx && p.offset == func.offset {
+        if p.secIdx == func.secIdx && p.offset == func.offset {
             csvProc = p
             break
         }

@@ -312,6 +312,8 @@ parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool) -> (srcCo
                 srcCodeLocs[i].procedure = p.name
                 srcCodeLocs[i].line = i32(l.lineStart)
                 srcCodeLocs[i].column = i32(l.colStart)
+
+                // TODO: locate inlinee: perform a depth search on CvsInlineSite, record its info along the way
             }
             if lb != nil && lb.nameOffset > 0 {
                 mi.namesStream.offset = uint(lb.nameOffset)

@@ -3,6 +3,8 @@ package libpdb
 import "core:log"
 import "core:intrinsics"
 
+CvsOffset :: distinct u32le
+
 CvsRecordHeader :: struct #packed {
     length  : u16le, // record length excluding this 2 byte field
     kind    : CvsRecordKind,
@@ -76,8 +78,7 @@ CvsEnd      :: struct #packed {}
 CvsPub32 :: struct {
     using _base : struct #packed {
         flags : CvsPub32_Flags,
-        offset  : u32le,
-        seg     : u16le,
+        using _pso : PESectionOffset,
     },
     name        : string,
 }
@@ -93,8 +94,7 @@ CvsPub32_Flags :: enum u32le {
 CvsData32 :: struct {
     using _base : struct #packed {
         typind : TypeIndex,
-        offset : u32le,
-        seg    : u16le,
+        using _pso : PESectionOffset,
     },
     name       : string,
 }
@@ -157,11 +157,10 @@ CvsObjName :: struct {
 // S_THUNK32
 CvsThunk32 :: struct {
     using _base : struct #packed {
-        pParent : u32le,
-        pEnd    : u32le,
-        pNext   : u32le,
-        offset  : u32le,
-        seg     : u16le,
+        pParent : CvsOffset,
+        pEnd    : CvsOffset,
+        pNext   : CvsOffset,
+        using _pso : PESectionOffset,
         length  : u16le,
         ordinal : CvsThunkOrdinal,
     },
@@ -181,11 +180,10 @@ CvsThunkOrdinal :: enum u8 {
 // S_BLOCK32
 CvsBlocks32 :: struct {
     using _base : struct #packed {
-        pParent : u32le,
-        pEnd    : u32le,
+        pParent : CvsOffset,
+        pEnd    : CvsOffset,
         blockLen: u32le,
-        offset  : u32le,
-        seg     : u16le,
+        using _pso : PESectionOffset,
     },
     name        : string,
 }
@@ -193,8 +191,7 @@ CvsBlocks32 :: struct {
 // S_LABEL32
 CvsLabel32 :: struct {
     using _base : struct #packed {
-        offset  : u32le,
-        seg     : u16le,
+        using _pso : PESectionOffset,
         flags   : CvsProcFlags,
     },
     name        : string,
@@ -221,15 +218,14 @@ CvsBPRel32 :: struct {
 // S_GPROC32, S_LPROC32, S_GPROC32_ID, S_LPROC32_ID, S_LPROC32_DPC, S_LPROC32_DPC_ID
 CvsProc32 :: struct {
     using _base : struct #packed {
-        pParent : u32le,
-        pEnd    : u32le,   // pointer to this blocks end
-        pNext   : u32le,
+        pParent : CvsOffset,
+        pEnd    : CvsOffset,   // pointer to this blocks end
+        pNext   : CvsOffset,
         length  : u32le,
         dbgStart: u32le,
         dbgEnd  : u32le,
         typind  : TypeIndex,
-        offset  : u32le,
-        seg     : u16le,
+        using _pso : PESectionOffset,
         flags   : CvsProcFlags,
     },
     name        : string,
@@ -400,8 +396,8 @@ CvsBuildInfo :: struct #packed {
 CvsInlineSite :: struct {
     using _notPackedMarker : MsfNotPackedMarker,
     using _base : struct #packed {
-        pParent : u32le, // might points to a proc or another inline site
-        pEnd    : u32le,
+        pParent : CvsOffset, // might points to a proc or another inline site
+        pEnd    : CvsOffset,
         inlinee : CvItemId,
     },
     //binaryAnnotations : []byte;   // an array of compressed binary annotations.
