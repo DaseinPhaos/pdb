@@ -257,7 +257,7 @@ SlimDbiSecInfo :: struct {
     vAddr   : u32le,
 }
 
-find_dbi_stream :: proc(streamDir: ^StreamDirectory) -> (ret : SlimDbiData) {
+parse_dbi_stream :: proc(streamDir: ^StreamDirectory) -> (ret : SlimDbiData) {
     dbiSr := get_stream_reader(streamDir, DbiStream_Index)
     this := &dbiSr
     header := readv(this, DbiStreamHeader)
@@ -346,78 +346,5 @@ find_dbi_stream :: proc(streamDir: ^StreamDirectory) -> (ret : SlimDbiData) {
         }
         // TODO: omaps and stuff
     }
-    return
-}
-
-parse_dbi_stream :: proc(streamDir: ^StreamDirectory) -> (header : DbiStreamHeader) {
-    dbiSr := get_stream_reader(streamDir, DbiStream_Index)
-    this := &dbiSr
-    header = readv(this, DbiStreamHeader)
-    if header.versionSignature != -1 {
-        log.warnf("unrecognized dbiVersionSignature: %v", header.versionSignature)
-    }
-    if header.versionHeader != .V70 {
-        log.warnf("unrecognized dbiVersionHeader: %v", header.versionHeader)
-    }
-    if !_is_new_version_format(header.buildNumber) {
-        log.warnf("unrecognized old dbiBuildNumber: %v", header.buildNumber)
-    }
-
-    log.debug(header)
-    
-    { // Module Info substream
-        // TODO: return all mod infos. make buffer in temp array and copy to dynamic arrays in the end?
-        substreamEnd := uint(header.modInfoSize) + this.offset
-        defer assert(this.offset == substreamEnd)
-        for this.offset < substreamEnd {
-            modi := readv(this, DbiModInfo)
-            log.debugf("%v, after read: %v", modi, this.offset)
-        }
-    }
-
-    { // section contribution substream
-        substreamEnd := uint(header.secContributionSize) + this.offset
-        defer assert(this.offset == substreamEnd)
-        secContrSubstreamVersion := readv(this, DbiSecContrVersion)
-        log.debug(secContrSubstreamVersion)
-        secContrEntrySize := size_of(DbiSectionContribution)
-        switch secContrSubstreamVersion {
-        case .Ver60:
-        case .V2: secContrEntrySize = size_of(DbiSectionContribution2)
-        case: assert(false, "Invalid DbiSecContrVersion")
-        }
-        for this.offset < substreamEnd {
-            baseOffset := this.offset
-            defer this.offset = baseOffset + cast(uint)secContrEntrySize
-            secContr := readv(this, DbiSectionContribution)
-            log.debug(secContr)
-        }
-    }
-
-    { // setion map substream
-        substreamEnd := uint(header.secMapSize) + this.offset
-        defer assert(this.offset == substreamEnd)
-        secMapHeader := readv(this, DbiSecMapHeader)
-        log.debug(secMapHeader)
-
-        for this.offset < substreamEnd {
-            secMap := readv(this, DbiSecMapEntry)
-            log.debug(secMap)
-        }
-    }
-
-    { // file info substream
-        substreamEnd := uint(header.srcInfoSize) + this.offset
-        defer this.offset = substreamEnd // because...
-        /*dbiFileInfos := */readv(this, DbiFileInfos)
-        //log.debug(dbiFileInfos)
-    }
-    this.offset += uint(header.typeServerMapSize)
-    this.offset += uint(header.ecSubstreamSize)
-    { // optDbgHeaderSize
-        optDbgHeaders := readv(this, DbiOptDbgHeaders)
-        log.debug(optDbgHeaders)
-    }
-
     return
 }

@@ -269,7 +269,7 @@ parse_stack_trace :: proc(stackTrace: []StackFrame) -> (srcCodeLocs :[]runtime.S
                     pdbSr := get_stream_reader(&mi.streamDir, PdbStream_Index)
                     pdbHeader, nameMap, pdbFeatures := parse_pdb_stream(&pdbSr)
                     mi.namesStream = get_stream_reader(&mi.streamDir, find_named_stream(nameMap, NamesStream_Name))
-                    mi.dbiData = find_dbi_stream(&mi.streamDir)
+                    mi.dbiData = parse_dbi_stream(&mi.streamDir)
                 }
             }
         }
@@ -288,7 +288,7 @@ parse_stack_trace :: proc(stackTrace: []StackFrame) -> (srcCodeLocs :[]runtime.S
             mdAddress := stackFrame.imgBaseAddr + uintptr(mi.dbiData.sections[modi.secContrOffset.secIdx-1].vAddr) + uintptr(modi.secContrOffset.offset)
             modData, modDataOk := mdMap[mdAddress]
             if !modDataOk {
-                modData = resolve_mod_stream(&mi.streamDir, &modi)
+                modData = parse_mod_stream(&mi.streamDir, &modi)
                 mdMap[mdAddress] = modData
             }
             p, lb, l := locate_pc(&modData, funcOffset, pcRva-funcRva)
