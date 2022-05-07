@@ -34,9 +34,7 @@ stream_idx_valid ::#force_inline proc(idx: MsfStreamIdx) -> bool {return idx < M
 
 get_stream_reader :: #force_inline proc(using this: ^StreamDirectory, streamIdx : MsfStreamIdx) -> BlocksReader {
     assert(stream_idx_valid(streamIdx))
-    return BlocksReader{
-        data = data, blockSize = cast(uint)blockSize, indices = streamBlocks[streamIdx], size = cast(uint)streamSizes[streamIdx],
-    }
+    return make_reader_from_indiced_buf(data, streamBlocks[streamIdx], int(blockSize), streamSizes[streamIdx])
 }
 
 read_superblock :: proc(data: []byte) -> (this : SuperBlock, success: bool) {
@@ -59,9 +57,10 @@ read_superblock :: proc(data: []byte) -> (this : SuperBlock, success: bool) {
 read_stream_dir :: proc(using this: ^SuperBlock, data: []byte) -> (sd: StreamDirectory) {
     sdmOffset := blockMapAddr * blockSize
     sdmSize := ceil_div(numDirectoryBytes, blockSize)
-    breader := BlocksReader{
-        data = data, blockSize = uint(blockSize), indices = transmute([]u32le)mem.Raw_Slice{&data[sdmOffset],cast(int)sdmSize},
-    }
+    breader := make_reader_from_indiced_buf(data, transmute([]u32le)mem.Raw_Slice{&data[sdmOffset],cast(int)sdmSize}, int(blockSize), sdmSize*blockSize)
+    // breader := BlocksReader{
+    //     data = data, blockSize = uint(blockSize), indices = transmute([]u32le)mem.Raw_Slice{&data[sdmOffset],cast(int)sdmSize},
+    // }
 
     sd.numStreams = readv(&breader, u32le)
     //fmt.printf("number of streams %v\n", sd.numStreams)
@@ -91,8 +90,6 @@ read_stream_dir :: proc(using this: ^SuperBlock, data: []byte) -> (sd: StreamDir
 //@private
 BlocksReader :: struct {
     data: []byte,
-    blockSize: uint,
-    indices: []u32le,
     offset : uint,
     size : uint,
 }
@@ -100,19 +97,26 @@ _dummy_indices :[]u32le = {0,}
 make_dummy_reader :: proc(data: []byte) -> BlocksReader {
     return BlocksReader{
         data = data,
-        blockSize = len(data),
-        indices = _dummy_indices,
         offset = 0,
         size = len(data),
     }
 }
+make_reader_from_indiced_buf :: proc(data: []byte, indices: []u32le, blockSize: int, totalSize: u32le) -> BlocksReader {
+    buf := make([]byte, cast(uint)totalSize)
+    for i in 0..<len(indices)-1 {
+        isrc := int(indices[i])
+        intrinsics.mem_copy_non_overlapping(&buf[i*blockSize], &data[isrc*blockSize], blockSize)
+    }
+    if len(indices) > 0 { // last buf
+        i := len(indices) - 1
+        isrc := int(indices[i])
+        intrinsics.mem_copy_non_overlapping(&buf[i*blockSize], &data[isrc*blockSize], len(buf)-i*blockSize)
+    }
+    return make_dummy_reader(buf)
+}
 
-get_byte :: proc(using this: ^BlocksReader, at: uint) -> byte {
-    bii := at / blockSize
-    iib := at - (bii * blockSize)
-    bi := cast(uint)indices[bii]
-    //fmt.printf("read byte at %v in block#%v[%v]: 0x%x\n", at, bii, bi, data[bi*blockSize + iib])
-    return data[bi*blockSize + iib]
+get_byte :: #force_inline proc(using this: ^BlocksReader, at: uint) -> byte {
+    return data[at]
 }
 
 @private
@@ -128,7 +132,7 @@ _can_read_packed :: proc ($T: typeid) -> bool {
 
 MsfNotPackedMarker :: struct {}
 
-read_packed :: proc(using this: ^BlocksReader, $T: typeid) -> (ret: T)
+read_packed :: #force_inline proc(using this: ^BlocksReader, $T: typeid) -> (ret: T)
     where !intrinsics.type_has_field(T, "_base"),
           !intrinsics.type_is_subtype_of(T, MsfNotPackedMarker) {
         when ODIN_DEBUG==true {
@@ -137,34 +141,12 @@ read_packed :: proc(using this: ^BlocksReader, $T: typeid) -> (ret: T)
                 assert(false, "type cannot be read") // I wish this could've been constexpred
             }
         }    
-        tsize := cast(uint)size_of(T)
-        assert(size == 0 || offset + tsize <= size, "block overflow")
-        bii := offset /blockSize
-        iib := offset - (bii * blockSize)
-        when true {
-            pret := cast(^byte)&ret
-            psrc := &data[uint(indices[bii])*blockSize+iib]
-            blockLeft := blockSize-iib
-            mem.copy_non_overlapping(pret, psrc, cast(int)min(tsize, blockLeft))
-            if tsize > blockLeft {
-                tsize -= blockLeft
-                assert(tsize <= blockSize, "when don't support reading a single struct across >2 blocks for now")
-                pret = mem.ptr_offset(pret, blockLeft)
-                psrc = &data[indices[bii+1]]
-                mem.copy_non_overlapping(pret, psrc, cast(int)tsize)
-            }
-        } else {
-            if iib + tsize <= blockSize {
-                ret = (cast(^T)&data[uint(indices[bii])*blockSize+iib])^
-            } else {
-                pret := cast(^byte)&ret
-                for i in 0..<tsize {
-                    mem.ptr_offset(pret, i)^ = get_byte(this, offset+i)
-                }
-            }
-        }
-        
-        offset += cast(uint)size_of(T)
+        tsize := size_of(T)
+        assert(size == 0 || offset + uint(tsize) <= size, "block overflow")
+        pret := cast(^byte)&ret
+        psrc := &data[offset]
+        mem.copy_non_overlapping(pret, psrc, tsize)
+        offset += uint(tsize)
         return
 }
 
@@ -200,14 +182,18 @@ read_length_prefixed_name :: proc(this: ^BlocksReader) -> (ret: string) {
         if get_byte(this, i) == 0 do break
         nameLen+=1
     }
-    defer this.offset+=1 // eat trailing \0
+    defer this.offset+=uint(nameLen+1) // eat trailing \0 as well
     if nameLen == 0 do return ""
-    //nameLen := cast(int)read_int_record(this)
-    a := make([]byte, nameLen)
-    for i in 0..<nameLen {
-        a[i] = readv(this, byte)
+    when true {
+        return strings.string_from_ptr(&this.data[this.offset], nameLen)
+    } else {
+        //nameLen := cast(int)read_int_record(this)
+        a := make([]byte, nameLen)
+        for i in 0..<nameLen {
+            a[i] = readv(this, byte)
+        }
+        return strings.string_from_ptr(&a[0], nameLen)
     }
-    return strings.string_from_ptr(&a[0], nameLen)
 }
 
 @private

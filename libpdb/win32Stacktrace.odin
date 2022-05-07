@@ -206,7 +206,7 @@ parse_stack_trace :: proc(stackTrace: []StackFrame) -> (srcCodeLocs :[]runtime.S
             pBuf := &nameBuf[0]
             nameLen := windows.GetModuleFileNameW(windows.HMODULE(stackFrame.imgBaseAddr), pBuf, len(nameBuf))
             mi.filePath = windows.wstring_to_utf8(pBuf, cast(int)nameLen)
-            log.debugf("getting module name for image at 0x%p, name[%d]:%v", stackFrame.imgBaseAddr, nameLen, mi.filePath)
+            //log.debugf("getting module name for image at 0x%p, name[%d]:%v", stackFrame.imgBaseAddr, nameLen, mi.filePath)
             peFileContent, peFileOk := os.read_entire_file(mi.filePath)
             if !peFileOk { // ? what else can be done?
                 continue

@@ -26,10 +26,10 @@ main ::proc() {
     //odin run test.odin -file -out:build\test.exe -debug -- .\build\test.pdb
     context.assertion_failure_proc = on_assert_fail
 
-    context.logger.lowest_level = .Warning
+    context.logger.lowest_level = .Debug
     log_proc :: proc(data: rawptr, level: log.Level, text: string, options: log.Options, location:= #caller_location) {
         #partial switch level {
-        //case log.Level.Debug: fmt.printf("[%v]: %v\n", level, text)
+        // case log.Level.Debug: fmt.printf("[%v]: %v\n", level, text)
         case: fmt.printf("[%v]%v: %v\n", level, location, text)
         }
         //fmt.printf("[%v]%v: %v\n", level, location, text)
