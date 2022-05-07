@@ -398,13 +398,119 @@ CvsBuildInfo :: struct #packed {
 
 // S_INLINESITE
 CvsInlineSite :: struct {
+    using _notPackedMarker : MsfNotPackedMarker,
     using _base : struct #packed {
-        pParent : u32le,
+        pParent : u32le, // might points to a proc or another inline site
         pEnd    : u32le,
         inlinee : CvItemId,
     },
-    name        : string, //???binaryAnnotations[CV_ZEROLEN];   // an array of compressed binary annotations.
+    //binaryAnnotations : []byte;   // an array of compressed binary annotations.
+    lines : []CvsInlineUncompressedLine,
 }
+read_cvsInlineSite :: proc(using this: ^BlocksReader, blockEnd: uint, $T: typeid) -> (ret: T)
+    where intrinsics.type_is_subtype_of(T, CvsInlineSite) {
+    ret._base = readv(this, type_of(ret._base))
+    ret.lines = parse_binary_annotation(this, blockEnd)
+    return
+}
+// rerefence: https://github.com/willglynn/pdb/blob/5f07022b0188a4c9c39ff9d23270b1631c223631/src/symbol/annotations.rs
+BinaryAnnotationOpcode :: enum u8 {
+    Eof = 0,
+    CodeOffset = 1, // set code offset
+    ChangeCodeOffsetBase = 2, // set code offset base, subsequent offset is relative
+    ChangeCodeOffset = 3, // delta offset, emitting
+    ChangeCodeLength = 4, // change current line record length. if not set, default to dif from next emitted recored
+    ChangeFile = 5, // change file index
+    ChangeLineOffset = 6, // offset line (i32)
+    ChangeLineEndDelta = 7, // set how many lines, default is 1
+    ChangeRangeKind = 8, // isStatement(1). default is 1
+    ChangeColumnStart = 9, // start column number, 0 means no column info. default 0
+    ChangeColumnEndDelta = 10, // offset line end (i32)
+    ChangeCodeOffsetAndLineOffset = 11, // ((sourceDelta << 4) | CodeDelta). emitting
+    ChangeCodeLengthAndCodeOffset = 12, // (codeLength, codeOffset). emitting
+    ChangeColumnEnd = 13, // set end column number
+}
+parse_binary_annotation :: proc(using this: ^BlocksReader, blockEnd: uint) -> (ret: []CvsInlineUncompressedLine) {
+    baseOffset := this.offset
+    // pase 1: count emiiting
+    lineCount := 0
+    for this.offset < blockEnd {
+        #partial switch BinaryAnnotationOpcode(uncompress_binary_annonation(this)) {
+        case .ChangeCodeOffset:fallthrough
+        case .ChangeCodeOffsetAndLineOffset:fallthrough
+        case .ChangeCodeLengthAndCodeOffset:
+            lineCount+=1
+        case .Eof: break
+        }
+    }
+    //log.debug(lineCount)
+    this.offset = baseOffset
+    ret = make([]CvsInlineUncompressedLine, lineCount)
+    // pass 2: emit
+    lineCount = 0
+    cbo :u32le=0 // code base offset
+    co  :i32le=0 // code offset from base
+    fi  :u32le=0 // file index
+    l   :u32le=0 //?
+    c   :u32le=1
+    for this.offset < blockEnd {
+        opCode := cast(BinaryAnnotationOpcode)uncompress_binary_annonation(this)
+        //log.debug(opCode)
+        switch opCode {
+        case .Eof: break
+        case .CodeOffset: co = i32le(uncompress_binary_annonation(this))
+        case .ChangeCodeOffsetBase: cbo = uncompress_binary_annonation(this)
+        case .ChangeCodeOffset:
+            co = (i32le(co) + i32le(uncompress_binary_annonation(this)))
+        case .ChangeFile: fi = uncompress_binary_annonation(this)
+        case .ChangeLineOffset: l = u32le(i32le(l)+uncompress_binary_annonation_signed(this))
+        case .ChangeCodeLength:fallthrough // ignored
+        case .ChangeLineEndDelta:fallthrough // ignored
+        case .ChangeRangeKind:fallthrough // ignored
+        case .ChangeColumnEnd:fallthrough // ignored
+        case .ChangeColumnEndDelta: uncompress_binary_annonation(this)
+        case .ChangeColumnStart: c = uncompress_binary_annonation(this)
+        case .ChangeCodeOffsetAndLineOffset:
+            op := uncompress_binary_annonation(this)
+            co += i32le(op & 0xf)
+            l += op >> 4
+        case .ChangeCodeLengthAndCodeOffset:
+            uncompress_binary_annonation(this) // code len
+            co += i32le(uncompress_binary_annonation(this))
+        case: assert(false)
+        }
+        #partial switch opCode {
+        case .ChangeCodeOffset:fallthrough
+        case .ChangeCodeOffsetAndLineOffset:fallthrough
+        case .ChangeCodeLengthAndCodeOffset:
+            ret[lineCount] = CvsInlineUncompressedLine{u32le(i32le(cbo)+co), l,u16le(c), u16le(fi),}
+            c = 1
+            lineCount+=1
+        }
+    }
+    return
+}
+uncompress_binary_annonation :: proc(using this: ^BlocksReader) -> u32le {
+    b1 := u32le(readv(this, u8))
+    if (b1 & 0x80) == 0 do return b1
+    b2 := u32le(readv(this, u8))
+    if (b1 & 0xc0) == 0x80 do return ((b1 & 0x3f) << 8) | b2
+    b3 := u32le(readv(this, u8))
+    b4 := u32le(readv(this, u8))
+    return ((b1 & 0x1f) << 24) | (b2 << 16) | (b3 << 8) | b4
+}
+uncompress_binary_annonation_signed :: proc(using this: ^BlocksReader) -> i32le {
+    u := uncompress_binary_annonation(this)
+    if (u&1) != 0 do return -i32le(u>>1)
+    return i32le(u>>1)
+}
+CvsInlineUncompressedLine :: struct {
+    offset    : u32le, // +rva base.
+    lineStart : u32le, // dump lineEnd info, they usually don't make sense anyway
+    colStart  : u16le,
+    fileIdx   : u16le,
+}
+
 
 // S_FILESTATIC
 CvsFileStatic :: struct {
@@ -424,9 +530,9 @@ CvsFunctionList :: struct {
 }
 read_cvsFunctionList :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T)
     where intrinsics.type_is_subtype_of(T, CvsFunctionList) {
-        count := readv(this, u32le)
-        ret.funcs = read_packed_array(this, uint(count), TypeIndex)
-        return
+    count := readv(this, u32le)
+    ret.funcs = read_packed_array(this, uint(count), TypeIndex)
+    return
 }
 
 // S_HEAPALLOCSITE
@@ -607,7 +713,7 @@ parse_cvs :: proc(this: ^BlocksReader, cvsHeader : CvsRecordHeader) -> (v: CodeV
     case .S_ENVBLOCK:
         v.value = readv(this, CvsEnvBlock)
     case .S_INLINESITE:
-        v.value = readv(this, CvsInlineSite)
+        v.value = readv(this, this.offset + uint(cvsHeader.length)-size_of(CvsRecordKind), CvsInlineSite)
     case .S_FILESTATIC:
         v.value = readv(this, CvsFileStatic)
     case .S_CALLEES:fallthrough

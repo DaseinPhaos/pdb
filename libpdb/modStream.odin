@@ -1,4 +1,4 @@
-//! Module Information Stream, ref: https://llvm.org/docs/PDB/ModiStream.html https://github.com/willglynn/pdb/tree/master/src/modi
+//! Module Information Stream, ref: https://llvm.org/docs/PDB/ModiStream.html
 package libpdb
 import "core:log"
 import "core:strings"
@@ -23,12 +23,12 @@ parse_mod_stream :: proc(streamDir: ^StreamDirectory, modi: ^SlimDbiMod) -> (ret
         symSubStreamSize := modi.symByteSize - 4
         symSubStreamEnd := modSr.offset + uint(symSubStreamSize)
         defer modSr.offset = symSubStreamEnd
-        stack := make_stack(CvsProc32, cast(int)symSubStreamSize / ((size_of(CvsProc32)+size_of(CvsRecordKind))*4), context.temp_allocator)
-        defer delete_stack(&stack)
+        pStack := make_stack(CvsProc32, cast(int)symSubStreamSize / ((size_of(CvsProc32)+size_of(CvsRecordKind))*4), context.temp_allocator); defer delete_stack(&pStack)
+        iStack := make_stack(CvsInlineSite, cast(int)symSubStreamSize / ((size_of(CvsInlineSite)+size_of(CvsRecordKind))*4), context.temp_allocator); defer delete_stack(&iStack)
         for modSr.offset < symSubStreamEnd {
             cvsHeader  := readv(&modSr, CvsRecordHeader)
-            baseOffset := modSr.offset
-            defer modSr.offset = baseOffset+ uint(cvsHeader.length) - size_of(CvsRecordKind)
+            blockEnd := modSr.offset + uint(cvsHeader.length) - size_of(CvsRecordKind)
+            defer modSr.offset = blockEnd
             #partial switch cvsHeader.kind {
             case .S_LPROC32:fallthrough
             case .S_LPROC32_ID:fallthrough
@@ -36,12 +36,16 @@ parse_mod_stream :: proc(streamDir: ^StreamDirectory, modi: ^SlimDbiMod) -> (ret
             case .S_LPROC32_DPC_ID:fallthrough
             case .S_GPROC32:fallthrough
             case .S_GPROC32_ID:
-                push(&stack, readv(&modSr, CvsProc32))
+                push(&pStack, readv(&modSr, CvsProc32))
+            case .S_INLINESITE:
+                push(&iStack, readv(&modSr, blockEnd, CvsInlineSite))
             }
         }
-        if stack.count > 0 {
-            ret.procs = make([]CvsProc32, stack.count)
-            intrinsics.mem_copy_non_overlapping(&ret.procs[0], &stack.buf[0], stack.count * size_of(CvsProc32))
+        if pStack.count > 0 {
+            ret.procs = make_slice_clone_from_stack(&pStack)
+        }
+        if iStack.count > 0 {
+            ret.inlineSites = make_slice_clone_from_stack(&iStack)
         }
     }
 
@@ -119,8 +123,10 @@ parse_mod_stream :: proc(streamDir: ^StreamDirectory, modi: ^SlimDbiMod) -> (ret
 }
 
 SlimModData :: struct {
-    procs  : []CvsProc32,
-    blocks : []SlimModLineBlock,
+    procs       : []CvsProc32,
+    blocks      : []SlimModLineBlock,
+    inlineSites : []CvsInlineSite,
+    // TODO:
 }
 SlimModLineBlock :: struct {
     using _secOffset : PESectionOffset,
@@ -156,7 +162,9 @@ locate_pc :: proc(using data: ^SlimModData, func: PESectionOffset,  pcFromFunc: 
     return
 }
 
-// SubsectionHeader->Subsection from kind to stuff
+// the C13 CodeView line information format
+// reference: https://github.com/willglynn/pdb/blob/master/src/modi/c13.rs
+// a variable-size array of SubsectionHeader/Subsection contents
 CvDbgSubsectionHeader :: struct #packed {
     subsectionType  : CvDbgSubsectionType,
     length          : u32le,
@@ -181,7 +189,7 @@ CvDbgSubsectionType :: enum u32 { // DEBUG_S_SUBSECTION_TYPE
     ShouldIgnore = 0x8000_0000, // if set, the subsection content should be ignored
 }
 
-// lines subsection starts with this header, then follows []LinesFileBlocks
+// lines subsection starts with this header, then follows the CvDbgLinesFileBlockHeader
 CvDbgssLinesHeader :: struct #packed {
     offset  : u32le, // section offset
     seg     : u16le, // seg index in the PDB's section header list, incremented by 1
@@ -223,7 +231,7 @@ CvDbgColumn :: struct #packed {
 CvDbgssInlineeLinesHeader :: struct #packed {
     signature : CvDbgssInlineeLinesSignature,
 }
-CvDbgssInlineeLinesSignature :: enum u32le { none, ex = 0x1, }
+CvDbgssInlineeLinesSignature :: enum u32le { none = 0x0, ex = 0x1, }
 
 CvDbgInlineeSrcLine :: struct #packed {
     inlinee     : CvItemId, // inlinee function id

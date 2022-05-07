@@ -280,8 +280,7 @@ parse_dbi_stream :: proc(streamDir: ^StreamDirectory) -> (ret : SlimDbiData) {
             push(&stack, SlimDbiMod{modi.moduleName, modi.objFileName, modi.symByteSize, modi.c11ByteSize, modi.c13ByteSize, PESectionOffset{offset = modi.sectionContribution.offset, secIdx = modi.sectionContribution.section,}, modi.moduleSymStream})
         }
         if stack.count > 0 {
-            ret.modules = make([]SlimDbiMod, stack.count)
-            intrinsics.mem_copy_non_overlapping(&ret.modules[0], &stack.buf[0], stack.count * size_of(SlimDbiMod))
+            ret.modules = make_slice_clone_from_stack(&stack)
         }
     }
     { // section contribution substream
@@ -327,8 +326,7 @@ parse_dbi_stream :: proc(streamDir: ^StreamDirectory) -> (ret : SlimDbiData) {
             }
         }
         push(&stack, lastItem)
-        ret.contributions = make([]SlimDbiSecContr, stack.count)
-        intrinsics.mem_copy_non_overlapping(&ret.contributions[0], &stack.buf[0], stack.count * size_of(SlimDbiSecContr))
+        ret.contributions = make_slice_clone_from_stack(&stack)
     }
     // skip irrelevant streams
     this.offset += uint(header.secMapSize)

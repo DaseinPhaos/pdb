@@ -43,7 +43,7 @@ main ::proc() {
     log.debugf("reading %v\n", path)
     file_content, read_ok := os.read_entire_file(path)
     if !read_ok {
-        log.errorf("Unable to open file")
+        log.errorf("Unable to open file %v", path)
         return
     }
 
@@ -126,14 +126,17 @@ test_pdb :: proc(file_content : []byte) {
     ipiStream, _ := parse_tpi_stream(&ipiSr, &streamDir)
     //fmt.println(ipiStream)
 
-    when true {
-        
-        dbiStream := parse_dbi_stream(&streamDir)
-        // dbiStream := find_dbi_stream(&streamDir)
-        log.debug(dbiStream)
-        // mi := search_for_module(&dbiStream, 4096+446632)
-        // log.debug(dbiStream.modules[mi])
+    dbiStream := parse_dbi_stream(&streamDir)
+    //log.debug(dbiStream)
+    mainModule : Maybe(SlimDbiMod)
+    for module in dbiStream.modules {
+        if module.moduleName == "C:\\projects\\pdbReader\\build\\test.obj" {
+            mainModule = module
+            break
+        }
     }
+    modi, mmOk := mainModule.?
+    if !mmOk do return
 
     namesStreamIdx := find_named_stream(nameMap, NamesStream_Name)
     if !stream_idx_valid(namesStreamIdx) {
@@ -144,35 +147,54 @@ test_pdb :: proc(file_content : []byte) {
     namesStreamHdr := parse_names_stream(&namesSr)
 
     when false {
-        modi := DbiModInfo{
-            _base = {
-            unused1 = 0, 
-            sectionContr = DbiSecContrEntry{
-                section = 1, 
-                padding1 = 0, 
-                offset = 0, 
-                size = 528566, 
-                chaaracteristics = 1615863840, 
-                moduleIndex = 0, 
-                padding2 = 0, 
-                dataCrc = 0, 
-                relocCrc = 0,
-            }, 
-            flags = .None, 
-            moduleSymStream = 13, 
-            symByteSize = 286364, 
-            c11ByteSize = 0, 
-            c13ByteSize = 115700, 
-            sourceFileCount = 47, 
-            padding = 0, 
-            unused2 = 0, 
-            sourceFileNameIndex = 0, 
-            pdbFilePathNameIndex = 0,
-            }, 
-            moduleName = "H:\\projects\\pdbReader\\build\\test.obj",
-            objFileName = "H:\\projects\\pdbReader\\build\\test.obj",
+        modSr := get_stream_reader(&streamDir, modi.moduleSymStream)
+        modHeader := readv(&modSr, ModStreamHeader)
+        log.debug(modHeader)
+
+        { // symbol substream
+            symSubStreamSize := modi.symByteSize - 4
+            symSubStreamEnd := modSr.offset + uint(symSubStreamSize)
+            defer modSr.offset = symSubStreamEnd
+            //stack := make_stack(CvsInlineSite, cast(int)symSubStreamSize / ((size_of(CvsInlineSite)+size_of(CvsRecordKind))*4), context.temp_allocator)
+            //defer delete_stack(&stack)
+            for modSr.offset < symSubStreamEnd {
+                cvsHeader  := readv(&modSr, CvsRecordHeader)
+                baseOffset := modSr.offset
+                blockEnd := baseOffset+ uint(cvsHeader.length) - size_of(CvsRecordKind)
+                defer modSr.offset = blockEnd
+                #partial switch cvsHeader.kind {
+                case .S_INLINESITE:
+                    cvsIs := readv(&modSr, blockEnd, CvsInlineSite)
+                    log.debug(cvsIs)
+                }
+            }
         }
-        modSr := get_stream_reader(&streamDir, u32le(modi.moduleSymStream))
-        parse_mod_stream(&modSr, &modi, &namesSr)
+
+        {
+            // skip c11 lines
+            modSr.offset += uint(modi.c11ByteSize)
+            c13StreamStart  := modSr.offset
+            c13StreamEnd    := modSr.offset + uint(modi.c13ByteSize)
+            // second pass
+            modSr.offset = c13StreamStart
+            for modSr.offset < c13StreamEnd {
+                ssh := readv(&modSr, CvDbgSubsectionHeader)
+                endOffset := modSr.offset + uint(ssh.length)
+                //log.debugf("[%v:%v] %v", modSr.offset, endOffset, ssh)
+                defer modSr.offset = endOffset
+                #partial switch ssh.subsectionType {
+                case .InlineeLines: 
+                    ilHdr := readv(&modSr, CvDbgssInlineeLinesHeader)
+                    // TODO: if ilHdr == .ex 
+                    ilSrcline := readv(&modSr, CvDbgInlineeSrcLine)
+                    log.debugf("%v: %v", ilHdr, ilSrcline)
+                }
+            }
+        }
+
+        return
+    } else {
+        modData := parse_mod_stream(&streamDir, &modi)
+        log.debug(modData)
     }
 }
