@@ -214,8 +214,7 @@ _PEModuleInfo :: struct {
     dbiData      : SlimDbiData,
 }
 
-parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool) -> (srcCodeLocs :[]runtime.Source_Code_Location) {
-    srcCodeLocs = make([]runtime.Source_Code_Location, len(stackTrace))
+parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool, srcCodeLocs: ^RingBuffer(runtime.Source_Code_Location)) {
     miMap := make(map[uintptr]_PEModuleInfo, 8, context.temp_allocator)
     defer {
         for _, pemi in miMap {
@@ -225,7 +224,9 @@ parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool) -> (srcCo
     }
     mdMap := make(map[uintptr]SlimModData, 8, context.temp_allocator)
     defer delete(mdMap)
-    for stackFrame, i in stackTrace {
+    //for stackFrame, i in stackTrace {
+    for i := len(stackTrace)-1; i>=0; i-=1 {
+        stackFrame := stackTrace[i]
         mi, ok := miMap[stackFrame.imgBaseAddr]
         if !ok {
             // PEModuleInfo not found for this module, load them in
@@ -248,7 +249,6 @@ parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool) -> (srcCo
                 )
                 for dde in ddEntrys {
                     if dde.debugType != .CodeView do continue
-                    log.debug(dde)
                     if sameProcess {
                         // image is supposed to beloaded, we can just look at the struct in memory
                         pPdbBase := (^PECodeViewInfoPdb70Base)((stackFrame.imgBaseAddr) + uintptr(dde.rawDataAddr))
@@ -308,21 +308,50 @@ parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool) -> (srcCo
                 mdMap[mdAddress] = modData
             }
             p, lb, l := locate_pc(&modData, funcOffset, pcRva-funcRva)
-            if p != nil {
-                srcCodeLocs[i].procedure = p.name
-                srcCodeLocs[i].line = i32(l.lineStart)
-                srcCodeLocs[i].column = i32(l.colStart)
-
-                // TODO: locate inlinee: perform a depth search on CvsInlineSite, record its info along the way
-            }
+            scl : runtime.Source_Code_Location
             if lb != nil && lb.nameOffset > 0 {
                 mi.namesStream.offset = uint(lb.nameOffset)
-                srcCodeLocs[i].file_path = read_length_prefixed_name(&mi.namesStream)
+                scl.file_path = read_length_prefixed_name(&mi.namesStream)
             } else {
-                srcCodeLocs[i].file_path = modi.moduleName
+                scl.file_path = modi.moduleName
+            }
+            if p != nil {
+                scl.procedure = p.name
+                scl.line = i32(l.lineStart)
+                scl.column = i32(l.colStart)
+                push_front_rb(srcCodeLocs, scl)
+
+                // locate inline sites
+                pParent := p.pSelf
+                pcFromFunc := pcRva-funcRva
+                inlineSite, src := locate_inline_site(&modData, pParent, pcFromFunc)
+                srcLineNum :u32le = 0
+                for inlineSite != nil {
+                    if src != nil && src.nameOffset > 0 {
+                        mi.namesStream.offset = uint(src.nameOffset)
+                        scl.file_path = read_length_prefixed_name(&mi.namesStream)
+                        srcLineNum = src.srcLineNum
+                    } else {
+                        scl.file_path = modi.moduleName
+                    }
+                    lastLine := inlineSite.lines[0]
+                    for iline in inlineSite.lines {
+                        if iline.offset > pcFromFunc do break
+                        lastLine = iline
+                    }
+                    scl.procedure = "_inlinedFunc" // TODO: parse proc name by cvt info
+                    scl.line = i32(lastLine.lineStart + srcLineNum)
+                    scl.column = i32(lastLine.colStart)
+                    push_front_rb(srcCodeLocs, scl)
+                    //log.debugf("#%v[%v:%v] site found: %v, src: %v", srcCodeLocs.len, pParent, pcFromFunc, inlineSite, src)
+                    pParent = inlineSite.pSelf
+                    inlineSite, src = locate_inline_site(&modData, pParent, pcFromFunc)
+                }
             }
         } else {
-            srcCodeLocs[i].file_path = mi.filePath // pdb failed to provide us with a valid source file name, fallback to filePath provided by the image
+            scl : runtime.Source_Code_Location
+            scl.file_path = mi.filePath // pdb failed to provide us with a valid source file name, fallback to filePath provided by the image
+            push_front_rb(srcCodeLocs, scl)
         }
     }
     return
@@ -335,8 +364,11 @@ dump_stack_trace_on_exception :: proc "stdcall" (ExceptionInfo: ^windows.EXCEPTI
     traceCount := capture_strack_trace_from_context(ctxt, traceBuf[:])
     // TODO: exception information should be printed here as well.
     fmt.printf("Stacktrack[%d]:\n", traceCount)
-    srcCodeLines := parse_stack_trace(traceBuf[:traceCount], true)
-    for scl in srcCodeLines {
+    srcCodeLocs : RingBuffer(runtime.Source_Code_Location)
+    init_rb(&srcCodeLocs, 64)
+    parse_stack_trace(traceBuf[:traceCount], true, &srcCodeLocs)
+    for i in 0..<srcCodeLocs.len {
+        scl := get_rb(&srcCodeLocs, i)
         fmt.printf("%v:%d:%d: %v()\n", scl.file_path, scl.line, scl.column, scl.procedure)
     }
     return 0 // EXCEPTION_CONTINUE_SEARCH

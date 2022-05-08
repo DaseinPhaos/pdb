@@ -401,8 +401,16 @@ CvsInlineSite :: struct {
         inlinee : CvItemId,
     },
     //binaryAnnotations : []byte;   // an array of compressed binary annotations.
-    lines : []CvsInlineUncompressedLine,
+    lines : []CvsInlineUncompressedLine, // blocks that should be checked individually
 }
+CvsInlineUncompressedLine :: struct {
+    offset    : u32le, // +rva base.
+    end       : u32le, // offset+len
+    lineStart : u32le, // discard lineEnd info, they usually don't make sense anyway
+    colStart  : u16le,
+    fileIdx   : u16le,
+}
+
 read_cvsInlineSite :: proc(using this: ^BlocksReader, blockEnd: uint, $T: typeid) -> (ret: T)
     where intrinsics.type_is_subtype_of(T, CvsInlineSite) {
     ret._base = readv(this, type_of(ret._base))
@@ -449,6 +457,7 @@ parse_binary_annotation :: proc(using this: ^BlocksReader, blockEnd: uint) -> (r
     fi  :u32le=0 // file index
     l   :u32le=0 //?
     c   :u32le=1
+    cl  :u32le=0
     for this.offset < blockEnd {
         opCode := cast(BinaryAnnotationOpcode)uncompress_binary_annonation(this)
         //log.debug(opCode)
@@ -460,7 +469,8 @@ parse_binary_annotation :: proc(using this: ^BlocksReader, blockEnd: uint) -> (r
             co = (i32le(co) + i32le(uncompress_binary_annonation(this)))
         case .ChangeFile: fi = uncompress_binary_annonation(this)
         case .ChangeLineOffset: l = u32le(i32le(l)+uncompress_binary_annonation_signed(this))
-        case .ChangeCodeLength:fallthrough // ignored
+        case .ChangeCodeLength:
+            ret[lineCount-1].end = uncompress_binary_annonation(this)
         case .ChangeLineEndDelta:fallthrough // ignored
         case .ChangeRangeKind:fallthrough // ignored
         case .ChangeColumnEnd:fallthrough // ignored
@@ -471,7 +481,7 @@ parse_binary_annotation :: proc(using this: ^BlocksReader, blockEnd: uint) -> (r
             co += i32le(op & 0xf)
             l += op >> 4
         case .ChangeCodeLengthAndCodeOffset:
-            uncompress_binary_annonation(this) // code len
+            cl = uncompress_binary_annonation(this) // code len
             co += i32le(uncompress_binary_annonation(this))
         case: assert(false)
         }
@@ -479,9 +489,20 @@ parse_binary_annotation :: proc(using this: ^BlocksReader, blockEnd: uint) -> (r
         case .ChangeCodeOffset:fallthrough
         case .ChangeCodeOffsetAndLineOffset:fallthrough
         case .ChangeCodeLengthAndCodeOffset:
-            ret[lineCount] = CvsInlineUncompressedLine{u32le(i32le(cbo)+co), l,u16le(c), u16le(fi),}
+            ret[lineCount] = CvsInlineUncompressedLine{u32le(i32le(cbo)+co), cl, l,u16le(c), u16le(fi),}
             c = 1
+            cl = 0
             lineCount+=1
+        }
+    }
+    // fix line lengths to line ends
+    for i in 0..<len(ret) {
+        if ret[i].end != 0 {
+            ret[i].end = ret[i].offset + ret[i].end
+        } else if i+1 < len(ret) {
+            ret[i].end = ret[i+1].offset
+        } else {
+            ret[i].end = ret[i].offset+1 //?
         }
     }
     return
@@ -500,13 +521,6 @@ uncompress_binary_annonation_signed :: proc(using this: ^BlocksReader) -> i32le 
     if (u&1) != 0 do return -i32le(u>>1)
     return i32le(u>>1)
 }
-CvsInlineUncompressedLine :: struct {
-    offset    : u32le, // +rva base.
-    lineStart : u32le, // dump lineEnd info, they usually don't make sense anyway
-    colStart  : u16le,
-    fileIdx   : u16le,
-}
-
 
 // S_FILESTATIC
 CvsFileStatic :: struct {

@@ -54,11 +54,11 @@ main ::proc() {
     }
 }
 
-test_dump_stack :: proc() {
+test_dump_stack ::#force_inline proc() {
     foo()
 }
 
-foo :: proc() {
+foo ::#force_inline proc() {
     fmt.println("foo..")
     bar()
     fmt.println("...done")
@@ -66,7 +66,7 @@ foo :: proc() {
 
 bar :: proc() {
     using libpdb
-    when true {
+    when false {
         aov := make([]uint, 32)
         for i in 0..=32 {
             fmt.print(aov[i])
@@ -74,9 +74,12 @@ bar :: proc() {
     } else {
         traceBuf := make([]StackFrame , 32)
         traceCount := capture_stack_trace(traceBuf)
-        srcCodeLines := parse_stack_trace(traceBuf[:traceCount], false)
-        for scl in srcCodeLines {
-            fmt.printf("%v:%d:%d:%v()\n", scl.file_path, scl.line, scl.column, scl.procedure)
+        srcCodeLocs : RingBuffer(runtime.Source_Code_Location)
+        init_rb(&srcCodeLocs, 32)
+        parse_stack_trace(traceBuf[:traceCount], true, &srcCodeLocs)
+        for i in 0..<srcCodeLocs.len {
+            scl := get_rb(&srcCodeLocs, i)
+            fmt.printf("%v:%d:%d: %v()\n", scl.file_path, scl.line, scl.column, scl.procedure)
         }
     }
 }
@@ -130,7 +133,7 @@ test_pdb :: proc(file_content : []byte) {
     //log.debug(dbiStream)
     mainModule : Maybe(SlimDbiMod)
     for module in dbiStream.modules {
-        if module.moduleName == "C:\\projects\\pdbReader\\build\\test.obj" {
+        if module.moduleName == "H:\\projects\\pdbReader\\build\\test.obj" {
             mainModule = module
             break
         }

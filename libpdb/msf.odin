@@ -319,3 +319,46 @@ pop_n :: #force_inline proc(using stack: ^Stack($T), toPop: int) -> (popped: int
     count -= popped
     return
 }
+
+// no resize
+//@private
+RingBuffer :: struct($T: typeid) {
+	data:   []T,
+	len:    uint,
+	offset: uint,
+    allocator : mem.Allocator,
+}
+init_rb :: proc(q: ^$Q/RingBuffer($T), capacity : int, allocator := context.allocator) {
+	q.data = make([]T, capacity, allocator)
+    q.len = 0
+    q.offset = 0
+    q.allocator = allocator
+	return
+}
+get_rb :: #force_inline proc "contextless"(q: ^$Q/RingBuffer($T), #any_int i: int, loc := #caller_location) -> T {
+	return get_ptr_rb(q, i, loc)^
+}
+set_rb :: proc "contextless"(q: ^$Q/RingBuffer($T), #any_int i: int, val: T, loc := #caller_location) {
+	runtime.bounds_check_error_loc(loc, i, len(q.data))
+	
+	idx := (uint(i)+q.offset)%len(q.data)
+	q.data[idx] = val
+}
+get_ptr_rb :: proc "contextless"(q: ^$Q/RingBuffer($T), #any_int i: int, loc := #caller_location) -> ^T {
+	runtime.bounds_check_error_loc(loc, i, len(q.data))
+	
+	idx := (uint(i)+q.offset)%len(q.data)
+	return &q.data[idx]
+}
+push_back_rb :: proc "contextless"(q: ^$Q/RingBuffer($T), elem: T) -> bool {
+	idx := (q.offset+uint(q.len))%len(q.data)
+	q.data[idx] = elem
+	if q.len < len(q.data) do q.len += 1
+	return true
+}
+push_front_rb :: proc "contextless"(q: ^$Q/RingBuffer($T), elem: T) -> bool {
+	q.offset = uint(q.offset - 1 + len(q.data)) % len(q.data)
+	if q.len < len(q.data) do q.len += 1
+	q.data[q.offset] = elem
+	return true
+}

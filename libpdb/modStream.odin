@@ -58,6 +58,7 @@ parse_mod_stream :: proc(streamDir: ^StreamDirectory, modi: ^SlimDbiMod) -> (ret
         c13StreamEnd    := modSr.offset + uint(modi.c13ByteSize)
         fileChecksumOffset : Maybe(uint)
         lineBlockCount := 0
+        inlineSrcCount := 0
         // first pass
         for modSr.offset < c13StreamEnd {
             ssh := readv(&modSr, CvDbgSubsectionHeader)
@@ -67,12 +68,21 @@ parse_mod_stream :: proc(streamDir: ^StreamDirectory, modi: ^SlimDbiMod) -> (ret
             #partial switch ssh.subsectionType {
             case .FileChecksums: fileChecksumOffset = modSr.offset
             case .Lines: lineBlockCount+=1
+            case .InlineeLines:
+                islHdr := readv(&modSr, CvDbgssInlineeLinesHeader)
+                islSize := uint(size_of(CvDbgInlineeSrcLine))
+                if islHdr.signature == .ex {
+                    islSize = uint(size_of(CvDbgInlineeSrcLineEx))
+                }
+                inlineSrcCount += int((endOffset - modSr.offset) / islSize)
             }
         }
         ret.blocks = make([]SlimModLineBlock, lineBlockCount)
+        ret.inlineSrcs = make([]SlimModInlineSrc, inlineSrcCount)
         // second pass
         modSr.offset = c13StreamStart
         lineBlockCount = 0
+        inlineSrcCount = 0
         for modSr.offset < c13StreamEnd {
             ssh := readv(&modSr, CvDbgSubsectionHeader)
             endOffset := modSr.offset + uint(ssh.length)
@@ -105,8 +115,22 @@ parse_mod_stream :: proc(streamDir: ^StreamDirectory, modi: ^SlimDbiMod) -> (ret
                         cBlock.lines[li].colStart = u32le(column.start)
                     }
                 }
+            case .InlineeLines:
+                islHdr := readv(&modSr, CvDbgssInlineeLinesHeader)
+                islSize := uint(size_of(CvDbgInlineeSrcLine))
+                if islHdr.signature == .ex {
+                    islSize = uint(size_of(CvDbgInlineeSrcLineEx))
+                }
+                for modSr.offset < endOffset {
+                    itemEndOffset := modSr.offset + islSize
+                    isl := readv(&modSr, CvDbgInlineeSrcLine)
+                    //log.debugf("%v", isl)
+                    ret.inlineSrcs[inlineSrcCount] = SlimModInlineSrc{isl.inlinee, isl. fileId, isl.srcLineNum, }
+                    inlineSrcCount+=1
+                }
             }
         }
+        // resolve fileIds into nameOffsets
         if fco, ok := fileChecksumOffset.?; ok {
             for i in 0..<len(ret.blocks) {
                 modSr.offset = fco + uint(ret.blocks[i].nameOffset)
@@ -114,9 +138,17 @@ parse_mod_stream :: proc(streamDir: ^StreamDirectory, modi: ^SlimDbiMod) -> (ret
                 ret.blocks[i].nameOffset = NamesStream_StartOffset + checksumHdr.nameOffset
                 //log.debug(ret.blocks[i].nameOffset)
             }
+            for i in 0..<len(ret.inlineSrcs) {
+                modSr.offset = fco + uint(ret.inlineSrcs[i].nameOffset)
+                checksumHdr := readv(&modSr, CvDbgFileChecksumHeader)
+                ret.inlineSrcs[i].nameOffset = NamesStream_StartOffset + checksumHdr.nameOffset
+            }
         } else {
             for i in 0..<len(ret.blocks) {
                 ret.blocks[i].nameOffset = 0
+            }
+            for i in 0..<len(ret.inlineSrcs) {
+                ret.inlineSrcs[i].nameOffset = 0
             }
         }
     }
@@ -138,7 +170,7 @@ SlimModData :: struct {
     procs       : []SlimCvsProc,
     blocks      : []SlimModLineBlock,
     inlineSites : []SlimCvsInlineSite,
-    // TODO:
+    inlineSrcs  : []SlimModInlineSrc,
 }
 SlimModLineBlock :: struct {
     using _secOffset : PESectionOffset,
@@ -147,7 +179,13 @@ SlimModLineBlock :: struct {
 }
 SlimModLinePos :: struct {lineStart, colStart, offset : u32le,}
 
-locate_pc :: proc(using data: ^SlimModData, func: PESectionOffset,  pcFromFunc: u32le) -> (csvProc:^CvsProc32, lineBlock: ^SlimModLineBlock, line: ^SlimModLinePos){
+SlimModInlineSrc :: struct {
+    inlinee    : CvItemId, // TODO: sort by this for quick look up
+    nameOffset : u32le, // into the namesStreams
+    srcLineNum : u32le,
+}
+
+locate_pc :: proc(using data: ^SlimModData, func: PESectionOffset,  pcFromFunc: u32le) -> (csvProc:^SlimCvsProc, lineBlock: ^SlimModLineBlock, line: ^SlimModLinePos){
     for i in 0..<len(procs) {
         //log.debugf("%d/%d:", i, )
         p := &procs[i]
@@ -170,6 +208,31 @@ locate_pc :: proc(using data: ^SlimModData, func: PESectionOffset,  pcFromFunc: 
             line = cl
         }
         return
+    }
+    return
+}
+
+locate_inline_site:: proc(using data: ^SlimModData, pParent: CvsOffset, pcFromFunc: u32le) -> (site: ^SlimCvsInlineSite, src: ^SlimModInlineSrc){
+    // TODO: bisearch on a sorted acceleration structure
+    for i in 0..<len(inlineSites) {
+        if inlineSites[i].pParent != pParent do continue
+        found := false
+        for iline in inlineSites[i].lines {
+            if iline.end > pcFromFunc && iline.offset <= pcFromFunc {
+                site = &inlineSites[i]
+                found = true
+                break
+            }
+        }
+        if found do break
+    }
+    if site == nil do return
+    // TODO: bisearch on sorted
+    for i in 0..<len(inlineSrcs) {
+        if site.inlinee == inlineSrcs[i].inlinee {
+            src = &inlineSrcs[i]
+            break
+        }
     }
     return
 }
@@ -239,7 +302,7 @@ CvDbgColumn :: struct #packed {
     end   : u16le,
 }
 
-// InlineeLines subsection, starts with this header, follows with CvDbgInlineeSrcLine(Ex) depending on the flag
+// InlineeLines subsection, starts with this header, follows with []CvDbgInlineeSrcLine(Ex) depending on the flag
 CvDbgssInlineeLinesHeader :: struct #packed {
     signature : CvDbgssInlineeLinesSignature,
 }
