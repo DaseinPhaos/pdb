@@ -93,19 +93,19 @@ CvtRecordHeader :: struct #packed {
 }
 
 CvtRecordKind :: enum u16le {
-    LF_POINTER = 0x1002, // CvtlPointer
-    LF_MODIFIER = 0x1001, // CvtlModifier
-    LF_PROCEDURE = 0x1008, // CvtlProc
+    LF_POINTER = 0x1002, // CvtPointer
+    LF_MODIFIER = 0x1001, // CvtModifier
+    LF_PROCEDURE = 0x1008, // CvtProc
     LF_MFUNCTION = 0x1009,
     LF_LABEL = 0x000e,
-    LF_ARGLIST = 0x1201, // CvtlArgs
+    LF_ARGLIST = 0x1201, // CvtArgs
     LF_FIELDLIST = 0x1203, // TODO: proper child enumeration
-    LF_ARRAY = 0x1503, // CvtlArray
-    LF_CLASS = 0x1504, // CvtlStruct
-    LF_STRUCTURE = 0x1505, // CvtlStruct
-    LF_INTERFACE = 0x1519, // CvtlStruct
+    LF_ARRAY = 0x1503, // CvtArray
+    LF_CLASS = 0x1504, // CvtStruct
+    LF_STRUCTURE = 0x1505, // CvtStruct
+    LF_INTERFACE = 0x1519, // CvtStruct
     LF_UNION = 0x1506,
-    LF_ENUM = 0x1507, // CvtlEnum
+    LF_ENUM = 0x1507, // CvtEnum
     LF_TYPESERVER2 = 0x1515,
     LF_VFTABLE = 0x151d,
     LF_VTSHAPE = 0x000a,
@@ -200,11 +200,11 @@ read_int_record :: proc(this: ^BlocksReader) -> i128le {
 }
 
 //====type record for LF_MODIFIER
-CvtlModifier :: struct #packed {
+CvtModifier :: struct #packed {
     modifiedType : TypeIndex,
-    attrs        : CvtlModifier_Type,
+    attrs        : CvtModifier_Type,
 }
-CvtlModifier_Type :: enum u16le {
+CvtModifier_Type :: enum u16le {
     None = 0,
     Const = 1,
     Volatile = 2,
@@ -213,17 +213,17 @@ CvtlModifier_Type :: enum u16le {
 
 //====type record for LF_POINTER
 // Note that “plain” pointers to primitive types are not represented by LF_POINTER records, they are indicated by special reserved TypeIndex values.
-CvtlPointer :: struct #packed {
+CvtPointer :: struct #packed {
     referentType: TypeIndex,
-    attributes  : CvtlPointer_Attrs,
+    attributes  : CvtPointer_Attrs,
 }
 
 // bit field
 // |  Flags  |       Size       |   Modifiers   |  Mode   |      Kind     |
 // +0x16     +0x13              +0xD            +0x8      +0x5            +0x0
-CvtlPointer_Attrs :: distinct u32le
+CvtPointer_Attrs :: distinct u32le
 
-CvtlPointer_Kind :: enum u8 {
+CvtPointer_Kind :: enum u8 {
     Near16 = 0x00,                // 16 bit pointer
     Far16 = 0x01,                 // 16:16 far pointer
     Huge16 = 0x02,                // 16:16 huge pointer
@@ -239,7 +239,7 @@ CvtlPointer_Kind :: enum u8 {
     Near64 = 0x0c,                // 64 bit pointer
 };
 
-CvtlPointer_Mode :: enum u8 {
+CvtPointer_Mode :: enum u8 {
     Pointer = 0x00,                 // "normal" pointer
     LValueReference = 0x01,         // "old" reference
     PointerToDataMember = 0x02,     // pointer to data member
@@ -247,7 +247,7 @@ CvtlPointer_Mode :: enum u8 {
     RValueReference = 0x04,         // r-value reference
 };
 
-CvtlPointer_Modifiers :: enum u8 {
+CvtPointer_Modifiers :: enum u8 {
     None = 0x00,                    // "normal" pointer
     Flat32 = 0x01,                  // "flat" pointer
     Volatile = 0x02,                // marked volatile
@@ -256,7 +256,7 @@ CvtlPointer_Modifiers :: enum u8 {
     Restrict = 0x10,                // marked restrict
 };
 
-CvtlPointer_Flags :: enum u8 {
+CvtPointer_Flags :: enum u8 {
     WinRTSmartPointer = 0x01,       // a WinRT smart pointer
     LValueRefThisPointer = 0x02,    // 'this' pointer of a member function with ref qualifier (e.g. void X::foo() &)
     RValueRefThisPointer = 0x04,    // 'this' pointer of a member function with ref qualifier (e.g. void X::foo() &&)
@@ -264,13 +264,13 @@ CvtlPointer_Flags :: enum u8 {
 
 // TODO: member point info
 //====type record for LF_BITFIELD
-CvtlBitfield :: struct #packed {
+CvtBitfield :: struct #packed {
     utype : TypeIndex,
     length: u8,
     pos   : u8,
 }
 //====type record for LF_STRING_ID
-CvtlStringId :: struct {
+CvtStringId :: struct {
     using _base : struct #packed {
         id  : CvItemId, // ID to list of sub string IDs
     },
@@ -278,7 +278,7 @@ CvtlStringId :: struct {
 }
 
 //====type record for LF_FUNC_ID
-CvtlFuncId :: struct {
+CvtFuncId :: struct {
     using _base : struct #packed {
         scopeId  : CvItemId, // parrent scope of the ID, 0 if global
         funcType : TypeIndex,
@@ -287,7 +287,7 @@ CvtlFuncId :: struct {
 }
 
 //====type record for LF_MFUNC_ID
-CvtlMfuncId :: struct {
+CvtMfuncId :: struct {
     using _base : struct #packed {
         parent   : TypeIndex,
         funcType : TypeIndex,
@@ -296,33 +296,33 @@ CvtlMfuncId :: struct {
 }
 
 //====type record for LF_UDT_MOD_SRC_LINE
-CvtlUdtModSrcLine :: struct #packed {
+CvtUdtModSrcLine :: struct #packed {
     udtType : TypeIndex,
     src     : CvItemId, // index into string table of src filename
     line    : u32le,
     imod    : u16le, // module that contributes this udt def
 }
 //====type record for LF_BUILDINFO
-CvtlBuildInfo :: struct {
+CvtBuildInfo :: struct {
     using _npm : MsfNotPackedMarker,
     //count : u16le,
     args : []CvItemId,
 }
-read_cvtlBuildInfo :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where intrinsics.type_is_subtype_of(T, CvtlBuildInfo) {
+read_cvtBuildInfo :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where intrinsics.type_is_subtype_of(T, CvtBuildInfo) {
     argCount := readv(this, u16le)
     ret.args = read_packed_array(this, uint(argCount), CvItemId)
     return
 }
 
 //====type record for LF_PROCEDURE
-CvtlProc :: struct #packed {
+CvtProc :: struct #packed {
     retType     : TypeIndex,
     callType    : u8, //? calling convention
-    attrs       : CvtlProc_Attribute,
+    attrs       : CvtProc_Attribute,
     paramCount  : u16le,
     argList     : TypeIndex,
 }
-CvtlProc_Attribute :: enum u8 {
+CvtProc_Attribute :: enum u8 {
     None = 0,
     CxxReturnUdt = 1 << 0,
     Ctor = 1 << 1,
@@ -330,24 +330,24 @@ CvtlProc_Attribute :: enum u8 {
 }
 
 //====type record for LF_MFUNCTION
-CvtlMFunction :: struct #packed {
+CvtMFunction :: struct #packed {
     retType   : TypeIndex,
     classType : TypeIndex, // containing class
     thisType  : TypeIndex, // this pointer type (model specific)
     callType  : u8, //? calling convention
-    attrs     : CvtlProc_Attribute,
+    attrs     : CvtProc_Attribute,
     paramCount: u16le,
     argList   : TypeIndex,
     thisAdjust: u32le,
 }
 
 //====type record for LF_ARGLIST, LF_SUBSTR_LIST
-CvtlProc_ArgList :: struct {
+CvtProc_ArgList :: struct {
     using _npm : MsfNotPackedMarker,
     //count : u32le,
     args : []TypeIndex,
 }
-read_cvtfArgList :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where intrinsics.type_is_subtype_of(T, CvtlProc_ArgList) {
+read_cvtfArgList :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where intrinsics.type_is_subtype_of(T, CvtProc_ArgList) {
     argCount := readv(this, u32le)
     ret.args = read_packed_array(this, uint(argCount), TypeIndex)
     return
@@ -417,7 +417,7 @@ read_cvtfEnumerate :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where in
 //LF_PADs
 
 //====type record for LF_ARRAY
-CvtlArray :: struct {
+CvtArray :: struct {
     using _base : struct #packed {
         elemType : TypeIndex,
         idxType  : TypeIndex,
@@ -427,17 +427,17 @@ CvtlArray :: struct {
 }
 
 //====type record for LF_UNION
-CvtlUnion :: struct {
+CvtUnion :: struct {
     using _npm : MsfNotPackedMarker,
     elemCount : u16le,
-    props     : CvtlStruct_Prop,
+    props     : CvtStruct_Prop,
     field     : TypeIndex, // LF_FIELD descriptor list
     size      : uint,
     name      : string,
 }
-read_cvtlUnion :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where intrinsics.type_is_subtype_of(T, CvtlUnion) {
+read_cvtUnion :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where intrinsics.type_is_subtype_of(T, CvtUnion) {
     ret.elemCount = readv(this, u16le)
-    ret.props = readv(this, CvtlStruct_Prop)
+    ret.props = readv(this, CvtStruct_Prop)
     ret.field = readv(this, TypeIndex)
     ret.size = cast(uint)read_int_record(this)
     ret.name = read_length_prefixed_name(this)
@@ -446,10 +446,10 @@ read_cvtlUnion :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where intrin
 
 //====type record for LF_CLASS, LF_STRUCTURE, LF_INTERFACE
 // followed by data describing length of structure in bytes and name
-CvtlStruct :: struct {
+CvtStruct :: struct {
     using _base : struct #packed {
         elemCount   : u16le,
-        props       : CvtlStruct_Prop,
+        props       : CvtStruct_Prop,
         field       : TypeIndex, // LF_FIELD descriptor list
         derivedFrom : TypeIndex, // derived from list if not zero
         vshape      : TypeIndex, // vshape table
@@ -458,7 +458,7 @@ CvtlStruct :: struct {
     name        : string,
 }
 
-CvtlStruct_Prop :: enum u16le {
+CvtStruct_Prop :: enum u16le {
     None = 0,
     Packed = 1 << 0,
     Ctor = 1 << 1, 
@@ -471,26 +471,26 @@ CvtlStruct_Prop :: enum u16le {
     Scoped = 1 << 8,
     HasUniqueueName = 1 << 9, 
     Sealed = 1 << 10,
-    HFA_Float = u16le(CvtlStruct_HFA.Float) << 11,
-    HFA_Double = u16le(CvtlStruct_HFA.Double) << 11,
-    HFA_Other = u16le(CvtlStruct_HFA.Other) << 11,
+    HFA_Float = u16le(CvtStruct_HFA.Float) << 11,
+    HFA_Double = u16le(CvtStruct_HFA.Double) << 11,
+    HFA_Other = u16le(CvtStruct_HFA.Other) << 11,
     Intrinsics = 1 << 13, 
-    Mocom_Ref = u16le(CvtlStruct_MoCOM_UDT.Ref) << 14,
-    Mocom_Value = u16le(CvtlStruct_MoCOM_UDT.Value) << 14,
-    Mocom_Interface = u16le(CvtlStruct_MoCOM_UDT.Interface) << 14,
+    Mocom_Ref = u16le(CvtStruct_MoCOM_UDT.Ref) << 14,
+    Mocom_Value = u16le(CvtStruct_MoCOM_UDT.Value) << 14,
+    Mocom_Interface = u16le(CvtStruct_MoCOM_UDT.Interface) << 14,
 }
-CvtlStruct_HFA :: enum u16le {
+CvtStruct_HFA :: enum u16le {
     None=0, Float=1, Double=2, Other=3,
 }
-CvtlStruct_MoCOM_UDT :: enum u16le {
+CvtStruct_MoCOM_UDT :: enum u16le {
     None, Ref, Value, Interface,
 }
 
 //====type record for LF_ENUM
-CvtlEnum :: struct {
+CvtEnum :: struct {
     using _base : struct #packed {
         elemCount   : u16le,
-        props       : CvtlStruct_Prop,
+        props       : CvtStruct_Prop,
         underlyType : TypeIndex,
         fieldList   : TypeIndex, // type index into the LF_FIELD descriptor list
     },

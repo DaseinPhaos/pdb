@@ -343,6 +343,9 @@ parse_dbi_stream :: proc(streamDir: ^StreamDirectory) -> (ret : SlimDbiData) {
             ret.sections[i] = SlimDbiSecInfo{secHdr.name, secHdr.vSize, secHdr.vAddr, }
         }
         // TODO: omaps and stuff
+        if stream_idx_valid(optDbgHeaders.oSectionHeader) {
+            log.warn("oSection presented presented, need RVA remap!")
+        }
     }
     return
 }

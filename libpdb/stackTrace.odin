@@ -212,6 +212,8 @@ _PEModuleInfo :: struct {
     streamDir    : StreamDirectory,
     namesStream  : BlocksReader,
     dbiData      : SlimDbiData,
+    ipiStream    : BlocksReader,
+    ipiOffsetBuf : TpiIndexOffsetBuffer,
 }
 
 parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool, srcCodeLocs: ^RingBuffer(runtime.Source_Code_Location)) {
@@ -286,6 +288,9 @@ parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool, srcCodeLo
                     pdbHeader, nameMap, pdbFeatures := parse_pdb_stream(&pdbSr)
                     mi.namesStream = get_stream_reader(&mi.streamDir, find_named_stream(nameMap, NamesStream_Name))
                     mi.dbiData = parse_dbi_stream(&mi.streamDir)
+                    mi.ipiStream = get_stream_reader(&mi.streamDir, IpiStream_Index)
+                    _, ipiOffsetBuf := parse_tpi_stream(&mi.ipiStream, &streamDir)
+                    mi.ipiOffsetBuf = ipiOffsetBuf
                 }
             }
         }
@@ -339,7 +344,18 @@ parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool, srcCodeLo
                         if iline.offset > pcFromFunc do break
                         lastLine = iline
                     }
+
                     scl.procedure = "_inlinedFunc" // TODO: parse proc name by cvt info
+                    if seek_for_tpi(mi.ipiOffsetBuf, inlineSite.inlinee, &mi.ipiStream) {
+                        cvtHeader := readv(&mi.ipiStream, CvtRecordHeader)
+                        #partial switch cvtHeader.kind {
+                        case .LF_MFUNC_ID:fallthrough // legit because binary structure identical
+                        case .LF_FUNC_ID:
+                            cvtFuncId := readv(&mi.ipiStream, CvtFuncId)
+                            scl.procedure = cvtFuncId.name
+                        }
+                    }
+                    
                     scl.line = i32(lastLine.lineStart + srcLineNum)
                     scl.column = i32(lastLine.colStart)
                     push_front_rb(srcCodeLocs, scl)

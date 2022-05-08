@@ -124,11 +124,16 @@ test_pdb :: proc(file_content : []byte) {
     
     tpiSr := get_stream_reader(&streamDir, TpiStream_Index)
     tpiStream, _ := parse_tpi_stream(&tpiSr, &streamDir)
-    //fmt.println(tpiStream)
+    log.debug(tpiStream)
 
     ipiSr := get_stream_reader(&streamDir, IpiStream_Index)
-    ipiStream, _ := parse_tpi_stream(&ipiSr, &streamDir)
-    //fmt.println(ipiStream)
+    ipiStream, ipiHash := parse_tpi_stream(&ipiSr, &streamDir)
+    log.debug(ipiStream)
+    ti :TypeIndex=4096
+    seek_for_tpi(ipiHash, ti, &ipiSr)
+    cvtHeader := readv(&ipiSr, CvtRecordHeader)
+    log.debugf("TypeIndex%x(%v): %v", ti, ti, cvtHeader)
+    inspect_cvt(&ipiSr, cvtHeader)
 
     dbiStream := parse_dbi_stream(&streamDir)
     //log.debug(dbiStream)
@@ -198,7 +203,9 @@ test_pdb :: proc(file_content : []byte) {
 
         return
     } else {
-        modData := parse_mod_stream(&streamDir, &modi)
-        log.debug(modData)
+        // modData := parse_mod_stream(&streamDir, &modi)
+        // log.debug(modData.procs)
+        // log.debug(modData.inlineSites)
+        // log.debug(modData.inlineSrcs)
     }
 }

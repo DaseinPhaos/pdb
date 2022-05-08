@@ -39,12 +39,10 @@ TpiIndexOffsetBuffer :: struct {
 }
 TpiIndexOffsetPair :: struct #packed {ti: TypeIndex, offset: u32le,}
 
-// TODO: test this method...
-find_index_offset :: proc(using this: TpiIndexOffsetBuffer, ti : TypeIndex, tpiStream: ^BlocksReader) -> (tOffset: u32le) {
+seek_for_tpi :: proc(using this: TpiIndexOffsetBuffer, ti : TypeIndex, tpiStream: ^BlocksReader) -> (ok: bool) {
     // bisearch then linear seaarch proc
-    tOffset = 0xffff_ffff
     lo, hi := 0, (len(buf)-1)
-    if hi < 0 || buf[lo].ti > ti || buf[hi].ti < ti do return
+    if hi < 0 || buf[lo].ti > ti || buf[hi].ti < ti do return false
     // ti in range, do a bisearch
     for lo <= hi {
         //log.debugf("Find block [%v, %v) for ti%v", lo,hi, ti)
@@ -69,7 +67,7 @@ find_index_offset :: proc(using this: TpiIndexOffsetBuffer, ti : TypeIndex, tpiS
         tpiStream.offset += cast(uint)cvtHeader.length - size_of(CvtRecordKind)
     }
     //log.debugf("Block offset: %v", tpiStream.offset)
-    return u32le(tpiStream.offset)
+    return true
 }
 
 parse_tpi_stream :: proc(this: ^BlocksReader, dir: ^StreamDirectory) -> (header: TpiStreamHeader, tiob: TpiIndexOffsetBuffer) {
@@ -95,93 +93,84 @@ parse_tpi_stream :: proc(this: ^BlocksReader, dir: ^StreamDirectory) -> (header:
     }
     //log.debug(tiob)
 
-    context.logger.lowest_level = .Warning
-    for this.offset < this.size {
-        cvtHeader := readv(this, CvtRecordHeader)
-        log.debug(cvtHeader.kind)
-        baseOffset := this.offset
-        inspect_cvt(this, cvtHeader)
-        this.offset = baseOffset+ uint(cvtHeader.length) - size_of(CvtRecordKind)
-    }
-
-    // {
-    //     tOffset := find_index_offset(tiob, 14529, this)
-    //     if tOffset == 0xffff_ffff {
-    //         log.warn("type not found")
-    //     } else {
-    //         this.offset = uint(tOffset)
-    //         cvtHeader := readv(this, CvtRecordHeader)
-    //         //log.debug(cvtHeader.kind)
-    //         inspect_cvt(this, cvtHeader)
-    //     }
+    // //context.logger.lowest_level = .Warning
+    // ti := header.typeIndexBegin
+    // for this.offset < this.size {
+    //     cvtHeader := readv(this, CvtRecordHeader)
+    //     log.debug(cvtHeader.kind)
+    //     baseOffset := this.offset
+    //     defer this.offset = baseOffset+ uint(cvtHeader.length) - size_of(CvtRecordKind)
+    //     log.debugf("TypeIndex%x(%v): %v", ti, ti, cvtHeader)
+    //     ti+=1
+    //     //inspect_cvt(this, cvtHeader)
     // }
-
     return
 }
 
+// TODO: cleanup
 inspect_cvt :: proc(this: ^BlocksReader, cvtHeader : CvtRecordHeader) {
     #partial switch  cvtHeader.kind {
         case .LF_POINTER: {
-            cvtPtr := readv(this, CvtlPointer)
+            cvtPtr := readv(this, CvtPointer)
             log.debug(cvtPtr)
         }
         case .LF_PROCEDURE: {
-            CvtlProc := readv(this, CvtlProc)
-            log.debug(CvtlProc)
+            CvtProc := readv(this, CvtProc)
+            log.debug(CvtProc)
         }
         case .LF_ARGLIST:fallthrough
         case .LF_SUBSTR_LIST: {
-            args := readv(this, CvtlProc_ArgList)
+            args := readv(this, CvtProc_ArgList)
             log.debug(args)
         }
         case .LF_CLASS:fallthrough
         case .LF_STRUCTURE:fallthrough
         case .LF_INTERFACE: {
-            cvtStruct := readv(this, CvtlStruct)
+            cvtStruct := readv(this, CvtStruct)
             log.debug(cvtStruct)
         }
         case .LF_ENUM: {
-            cvtEnum := readv(this, CvtlEnum)
+            cvtEnum := readv(this, CvtEnum)
             log.debug(cvtEnum)
         }
         case .LF_ARRAY: {
-            cvtArray := readv(this, CvtlArray)
+            cvtArray := readv(this, CvtArray)
             log.debug(cvtArray)
         }
         case .LF_UNION: {
-            cvtUnion := readv(this, CvtlUnion)
+            cvtUnion := readv(this, CvtUnion)
             log.debug(cvtUnion)
         }
         case .LF_MODIFIER: {
-            cvt := readv(this, CvtlModifier)
+            cvt := readv(this, CvtModifier)
             log.debug(cvt)
         }
         case .LF_MFUNCTION: {
-            cvt := readv(this, CvtlMFunction)
+            cvt := readv(this, CvtMFunction)
             log.debug(cvt)
         }
         case .LF_BITFIELD: {
-            cvt := readv(this, CvtlBitfield)
+            cvt := readv(this, CvtBitfield)
             log.debug(cvt)
         }
         case .LF_STRING_ID: {
-            cvt := readv(this, CvtlStringId)
+            cvt := readv(this, CvtStringId)
             log.debug(cvt)
         }
         case .LF_FUNC_ID: {
-            cvt := readv(this, CvtlFuncId)
+            cvt := readv(this, CvtFuncId)
             log.debug(cvt)
         }
         case .LF_MFUNC_ID: {
-            cvt := readv(this, CvtlMfuncId)
+            cvt := readv(this, CvtMfuncId)
             log.debug(cvt)
         }
         case .LF_UDT_MOD_SRC_LINE: {
-            cvt := readv(this, CvtlUdtModSrcLine)
+            cvt := readv(this, CvtUdtModSrcLine)
             log.debug(cvt)
         }
         case .LF_BUILDINFO: {
-            args := readv(this, CvtlBuildInfo)
+            args := readv(this, CvtBuildInfo)
             log.debug(args)
         }
         case .LF_FIELDLIST: {
