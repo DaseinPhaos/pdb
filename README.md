@@ -30,8 +30,9 @@ You need to build the project with the `-debug` flag in order to generate pdb fi
 
 ## Limitations
 
-Inlined procedual information might be incorrect when compiled with `-o:speed`.
+- Inlined procedual information might be incorrect when compiled with `-o:speed`. I'm not sure if this is because of llvm generating incorrect debug infos or because of some bugs on my side.
+- No OMAP-based address translation at the moment. Odin compiler doesn't seem to generate any executable requiring it, so this shouldn't be a big issue right now.
 
-This is not intended to be a full-featured pdb-library. I only grabbed what's necessary to make developing with Odin on Windows more managable. I'd recommend looking into [llvm's documentation of pdb](https://llvm.org/docs/PDB/index.html),  [willglynn's well-documented pdb parse in Rust](https://github.com/willglynn/pdb) as well as [Microsoft's pdb repo](https://github.com/Microsoft/microsoft-pdb) if you're looking for a more feature-complete pdb parser.
+This is not intended to be a full-featured pdb-library. I only grabbed what's necessary to make developing with Odin on Windows a bit more managable. I'd recommend looking into [llvm's documentation of pdb](https://llvm.org/docs/PDB/index.html),  [willglynn's well-documented pdb parse in Rust](https://github.com/willglynn/pdb) as well as [Microsoft's pdb repo](https://github.com/Microsoft/microsoft-pdb) if you're looking for a more feature-complete pdb parser.
 
 Hope you'd find this useful. Happy coding!
