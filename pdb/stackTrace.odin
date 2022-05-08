@@ -5,7 +5,6 @@ import "core:slice"
 import "core:strings"
 import "core:intrinsics"
 import "core:runtime"
-import "core:fmt"
 import "core:io"
 import windows "core:sys/windows"
 foreign import ntdll_lib "system:ntdll.lib"
@@ -374,18 +373,40 @@ parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool, srcCodeLo
 }
 
 dump_stack_trace_on_exception :: proc "stdcall" (ExceptionInfo: ^windows.EXCEPTION_POINTERS) -> windows.LONG {
-    context = runtime.default_context() // TODO: use another allocator
+    context = runtime.default_context() // TODO: use a more efficient one-off allocators
     ctxt := cast(^CONTEXT)ExceptionInfo.ContextRecord
     traceBuf : [64]StackFrame
     traceCount := capture_strack_trace_from_context(ctxt, traceBuf[:])
-    // TODO: exception information should be printed here as well.
-    fmt.printf("Stacktrack[%d]:\n", traceCount)
+    // ? exception information should be printed here as well
+    runtime.print_string("Stacktrace:")
+    runtime.print_uint(traceCount)
+    runtime.print_string("\n")
     srcCodeLocs : RingBuffer(runtime.Source_Code_Location)
     init_rb(&srcCodeLocs, 64)
     parse_stack_trace(traceBuf[:traceCount], true, &srcCodeLocs)
     for i in 0..<srcCodeLocs.len {
         scl := get_rb(&srcCodeLocs, i)
-        fmt.printf("%v:%d:%d: %v()\n", scl.file_path, scl.line, scl.column, scl.procedure)
+        print_source_code_location(scl)
     }
     return 0 // EXCEPTION_CONTINUE_SEARCH
+}
+
+print_source_code_location :: proc (using scl: runtime.Source_Code_Location) {
+    using runtime
+    print_string(file_path)
+    when ODIN_ERROR_POS_STYLE == .Unix {
+        print_byte(':')
+		print_u64(u64(line))
+		print_byte(':')
+		print_u64(u64(column))
+		print_byte(':')
+    } else {
+        print_byte('(')
+		print_u64(u64(line))
+		print_byte(':')
+		print_u64(u64(column))
+		print_byte(')')
+    }
+    print_string(procedure)
+    print_string("()\n")
 }
