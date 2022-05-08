@@ -343,7 +343,7 @@ parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool, srcCodeLo
                     scl.line = i32(lastLine.lineStart + srcLineNum)
                     scl.column = i32(lastLine.colStart)
                     push_front_rb(srcCodeLocs, scl)
-                    //log.debugf("#%v[%v:%v] site found: %v, src: %v", srcCodeLocs.len, pParent, pcFromFunc, inlineSite, src)
+                    //fmt.printf("#%v[%v:%v] site found: %v, src: %v\n", srcCodeLocs.len, pParent, pcFromFunc, inlineSite, src)
                     pParent = inlineSite.pSelf
                     inlineSite, src = locate_inline_site(&modData, pParent, pcFromFunc)
                 }

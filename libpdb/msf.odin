@@ -362,3 +362,16 @@ push_front_rb :: proc "contextless"(q: ^$Q/RingBuffer($T), elem: T) -> bool {
 	q.data[q.offset] = elem
 	return true
 }
+
+binary_search_min_ge :: proc(buf: []$T, value: $V, cmp: proc(v: V, t: ^T) -> int) -> int {
+    lb := 0
+    hb := len(buf)-1
+    if hb < lb do return lb
+    if cmp(value, &buf[hb]) > 0 do return hb+1
+    for lb < hb {
+        mid := lb + ((hb-lb)>>1)
+        if cmp(value, &buf[mid]) > 0 do lb = mid + 1
+        else do hb = mid
+    }
+    return lb
+}

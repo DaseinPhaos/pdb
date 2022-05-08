@@ -66,10 +66,11 @@ foo ::#force_inline proc() {
 
 bar :: proc() {
     using libpdb
-    when false {
+    when true {
         aov := make([]uint, 32)
         for i in 0..=32 {
-            fmt.print(aov[i])
+            v := aov[i]
+            fmt.print(v)
         }
     } else {
         traceBuf := make([]StackFrame , 32)

@@ -1,6 +1,7 @@
 //! Module Information Stream, ref: https://llvm.org/docs/PDB/ModiStream.html
 package libpdb
 import "core:log"
+import "core:slice"
 import "core:strings"
 import "core:intrinsics"
 
@@ -48,6 +49,14 @@ parse_mod_stream :: proc(streamDir: ^StreamDirectory, modi: ^SlimDbiMod) -> (ret
         }
         if iStack.count > 0 {
             ret.inlineSites = make_slice_clone_from_stack(&iStack)
+            // sort inline sites by pParent, pEnd
+            // this allows us to do binary search on pParent to quickly narrow the range of sites needed for checking
+            slice.sort_by(ret.inlineSites, proc(a, b: SlimCvsInlineSite)->bool {
+                if a.pParent < b.pParent do return true
+                else if a.pParent > b.pParent do return false
+                else if a.pEnd < b.pEnd do return true
+                else do return false
+            })
         }
     }
 
@@ -151,6 +160,10 @@ parse_mod_stream :: proc(streamDir: ^StreamDirectory, modi: ^SlimDbiMod) -> (ret
                 ret.inlineSrcs[i].nameOffset = 0
             }
         }
+        // finally, sort inlineSrcs by inlinee
+        slice.sort_by(ret.inlineSrcs, proc(a, b: SlimModInlineSrc)->bool {
+            return a.inlinee < b.inlinee
+        })
     }
 
     return
@@ -213,9 +226,15 @@ locate_pc :: proc(using data: ^SlimModData, func: PESectionOffset,  pcFromFunc: 
 }
 
 locate_inline_site:: proc(using data: ^SlimModData, pParent: CvsOffset, pcFromFunc: u32le) -> (site: ^SlimCvsInlineSite, src: ^SlimModInlineSrc){
-    // TODO: bisearch on a sorted acceleration structure
-    for i in 0..<len(inlineSites) {
-        if inlineSites[i].pParent != pParent do continue
+    // bisearch on a sorted acceleration structure
+    iStart := binary_search_min_ge(inlineSites, pParent, proc(v: CvsOffset, t: ^SlimCvsInlineSite) -> int {
+        //log.debugf("Comparing %v with %v", v, t.pParent)
+        if v < t.pParent do return -1
+        else if v > t.pParent do return 1
+        else do return 0
+    })
+    for i in iStart..<len(inlineSites) {
+        if inlineSites[i].pParent != pParent do break
         found := false
         for iline in inlineSites[i].lines {
             if iline.end > pcFromFunc && iline.offset <= pcFromFunc {
@@ -227,12 +246,14 @@ locate_inline_site:: proc(using data: ^SlimModData, pParent: CvsOffset, pcFromFu
         if found do break
     }
     if site == nil do return
-    // TODO: bisearch on sorted
-    for i in 0..<len(inlineSrcs) {
-        if site.inlinee == inlineSrcs[i].inlinee {
-            src = &inlineSrcs[i]
-            break
-        }
+
+    iSite := binary_search_min_ge(inlineSrcs, site.inlinee, proc(v: CvItemId, t: ^SlimModInlineSrc) -> int {
+        if v < t.inlinee do return -1
+        else if v > t.inlinee do return 1
+        else do return 0
+    })
+    if iSite < len(inlineSrcs) && inlineSrcs[iSite].inlinee == site.inlinee {
+        src = &inlineSrcs[iSite]
     }
     return
 }
