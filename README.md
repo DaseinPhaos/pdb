@@ -24,7 +24,7 @@ C:\WINDOWS\SYSTEM32\ntdll.dll:0:0:()
 
 Add the library to your project, then put `windows.AddVectoredExceptionHandler(1, pdb.dump_stack_trace_on_exception)` on top of your `main` function.
 
-The custom handler `pdb.dump_stack_trace_on_exception` loads pdb files if possible and dumps line information about the stacktrace.
+The custom handler `pdb.dump_stack_trace_on_exception` loads debug info, parses the stacktrace, and dumps source line information if possible.
 
 You need to build the project with the `-debug` flag in order to generate pdb files for the executable.
 
