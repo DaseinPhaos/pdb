@@ -353,8 +353,50 @@ read_cvtfArgList :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where intr
     return
 }
 
-//====type record for LF_FIELDLIST
-// a collection of sub fields.
+//====type record for LF_FIELDLIST, a collection of sub fields.
+CvtFieldList :: struct {
+    using _npm : MsfNotPackedMarker,
+    fields : []CvtField,
+}
+CvtField :: struct {
+    kind  : CvtRecordKind,
+    value : union { CvtField_BClass, CvtField_Vbclass, CvtField_Member, CvtField_Enumerate, },
+}
+read_cvtFieldList :: proc(this: ^BlocksReader, endOffset: uint, $T: typeid) -> (ret: T)
+    where intrinsics.type_is_subtype_of(T, CvtFieldList) {
+    defer this.offset = endOffset
+    stack := make_stack(CvtField, int(endOffset-this.offset)*2/size_of(CvtField), context.temp_allocator); defer delete_stack(&stack)
+    for this.offset < endOffset {
+        for ;this.offset<endOffset;this.offset+=1 {
+            if this.data[this.offset] < u8(CvtRecordKind.LF_PAD0) {
+                break
+            }
+        }
+        f : CvtField
+        f.kind = readv(this, CvtRecordKind)
+        #partial switch f.kind {
+        case .LF_BCLASS: {
+            f.value = readv(this, CvtField_BClass)
+        }
+        case .LF_VBCLASS:fallthrough
+        case .LF_IVBCLASS: {
+            f.value = readv(this, CvtField_Vbclass)
+        }
+        case .LF_MEMBER: {
+            f.value = readv(this, CvtField_Member)
+        }
+        case .LF_ENUMERATE: {
+            f.value = readv(this, CvtField_Enumerate)
+        }
+        case: { //?
+            log.debugf("unrecognized: %v", f.kind)
+        }
+        }
+        push(&stack, f)
+    }
+    ret.fields = make_slice_clone_from_stack(&stack)
+    return
+}
 //====sub LF_BCLASS
 CvtField_BClass :: struct {
     using _npm : MsfNotPackedMarker,
@@ -527,4 +569,60 @@ CvtMethodProp :: enum u8 {
     Intro          = 0x04,
     PureVirt       = 0x05,
     PureIntro      = 0x06,
+}
+
+CodeViewType :: struct {
+    kind  : CvtRecordKind,
+    value : union {CvtPointer, CvtProc, CvtProc_ArgList, CvtStruct, CvtEnum, CvtArray, CvtUnion, CvtModifier, CvtMFunction, CvtBitfield, CvtStringId, CvtFuncId, CvtMfuncId, CvtUdtModSrcLine, CvtBuildInfo, CvtFieldList, },
+}
+
+parse_cvt :: proc(this: ^BlocksReader, cvtHeader : CvtRecordHeader) -> (v: CodeViewType) {
+    v.kind = cvtHeader.kind
+    #partial switch  cvtHeader.kind {
+        case .LF_POINTER:
+            v.value = readv(this, CvtPointer)
+        case .LF_PROCEDURE:
+            v.value = readv(this, CvtProc)
+        case .LF_ARGLIST:fallthrough
+        case .LF_SUBSTR_LIST:
+            v.value = readv(this, CvtProc_ArgList)
+        case .LF_CLASS:fallthrough
+        case .LF_STRUCTURE:fallthrough
+        case .LF_INTERFACE:
+            v.value = readv(this, CvtStruct)
+        case .LF_ENUM:
+            v.value = readv(this, CvtEnum)
+        case .LF_ARRAY:
+            v.value = readv(this, CvtArray)
+        case .LF_UNION:
+            v.value = readv(this, CvtUnion)
+        case .LF_MODIFIER:
+            v.value = readv(this, CvtModifier)
+        case .LF_MFUNCTION:
+            v.value = readv(this, CvtMFunction)
+        case .LF_BITFIELD:
+            v.value = readv(this, CvtBitfield)
+        case .LF_STRING_ID:
+            v.value = readv(this, CvtStringId)
+        case .LF_FUNC_ID:
+            v.value = readv(this, CvtFuncId)
+        case .LF_MFUNC_ID:
+            v.value = readv(this, CvtMfuncId)
+        case .LF_UDT_MOD_SRC_LINE:
+            v.value = readv(this, CvtUdtModSrcLine)
+        case .LF_BUILDINFO:
+            v.value = readv(this, CvtBuildInfo)
+        case .LF_FIELDLIST:
+            endOffset := this.offset + uint(cvtHeader.length) - size_of(CvtRecordKind)
+            v.value = readv(this, endOffset, CvtFieldList)
+        // case .LF_VTSHAPE: // TODO:
+        // case .LF_METHODLIST:  //?
+        case: log.debugf("Unhandled %v", cvtHeader.kind)
+        }
+        return
+}
+
+inspect_cvt :: proc(this: ^BlocksReader, cvtHeader : CvtRecordHeader) {
+    v := parse_cvt(this, cvtHeader)
+    log.debug(v)
 }

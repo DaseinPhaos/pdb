@@ -394,7 +394,7 @@ CvsBuildInfo :: struct #packed {
 
 // S_INLINESITE
 CvsInlineSite :: struct {
-    using _notPackedMarker : MsfNotPackedMarker,
+    using _npm : MsfNotPackedMarker,
     using _base : struct #packed {
         pParent : CvsOffset, // might points to a proc or another inline site
         pEnd    : CvsOffset,
