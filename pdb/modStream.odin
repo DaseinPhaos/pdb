@@ -1,5 +1,5 @@
 //! Module Information Stream, ref: https://llvm.org/docs/PDB/ModiStream.html
-package libpdb
+package pdb
 import "core:log"
 import "core:slice"
 import "core:strings"

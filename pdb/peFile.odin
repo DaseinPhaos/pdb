@@ -1,5 +1,5 @@
 //! reference: https://docs.microsoft.com/en-us/windows/win32/debug/pe-format
-package libpdb
+package pdb
 import "core:log"
 import "core:fmt"
 import "core:slice"

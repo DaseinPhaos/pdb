@@ -1,4 +1,4 @@
-package libpdb
+package pdb
 import "core:log"
 import "core:os"
 import "core:slice"

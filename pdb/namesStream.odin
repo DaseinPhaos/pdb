@@ -1,5 +1,5 @@
 //! the pdb string name table. reference: https://github.com/willglynn/pdb/blob/master/src/strings.rs
-package libpdb
+package pdb
 import "core:log"
 
 NamesStreamHeader :: struct #packed {

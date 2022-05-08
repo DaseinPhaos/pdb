@@ -1,5 +1,5 @@
 //! CodeView Type records, reference: https://llvm.org/docs/PDB/CodeViewTypes.html
-package libpdb
+package pdb
 import "core:log"
 import "core:strings"
 import "core:intrinsics"

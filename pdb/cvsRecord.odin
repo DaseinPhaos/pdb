@@ -1,5 +1,5 @@
 //! CodeView Symbol Records, reference: https://llvm.org/docs/PDB/CodeViewSymbols.html
-package libpdb
+package pdb
 import "core:log"
 import "core:intrinsics"
 

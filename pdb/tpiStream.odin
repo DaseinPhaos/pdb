@@ -1,5 +1,5 @@
 //! tpi or ipi stream, reference: https://llvm.org/docs/PDB/TpiStream.html
-package libpdb
+package pdb
 import "core:log"
 
 TpiStream_Index :MsfStreamIdx: 2

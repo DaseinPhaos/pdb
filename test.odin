@@ -1,5 +1,5 @@
 package test
-import "libpdb"
+import "pdb"
 import "core:fmt"
 import "core:os"
 import "core:strings"
@@ -15,7 +15,7 @@ main ::proc() {
     //odin run test.odin -file -out:build\test.pdb -- .\test\demo.pdb
     //odin run test.odin -file -out:build\test.exe -debug -- .\build\test.pdb
     //context.assertion_failure_proc = on_assert_fail
-    windows.AddVectoredExceptionHandler(1, libpdb.dump_stack_trace_on_exception)
+    windows.AddVectoredExceptionHandler(1, pdb.dump_stack_trace_on_exception)
 
     context.logger.lowest_level = .Debug
     log_proc :: proc(data: rawptr, level: log.Level, text: string, options: log.Options, location:= #caller_location) {
@@ -29,7 +29,7 @@ main ::proc() {
     context.logger.procedure = log_proc
 
     {
-        using libpdb
+        using pdb
         usrFmts := make(map[typeid]fmt.User_Formatter, 4)
         fmt.set_user_formatters(&usrFmts)
         fmt.register_user_formatter(PESectionName, peSectionName_formatter)
@@ -65,7 +65,7 @@ foo ::#force_inline proc() {
 }
 
 bar :: proc() {
-    using libpdb
+    using pdb
     when true {
         aov := make([]uint, 32)
         for i in 0..=32 {
@@ -86,7 +86,7 @@ bar :: proc() {
 }
 
 test_exe :: proc(file_content: []byte) {
-    using libpdb
+    using pdb
     reader := make_dummy_reader(file_content)
     seek_to_pe_headers(&reader)
     coffHdr, optHdr, dataDirs := read_pe_headers(&reader)
@@ -102,7 +102,7 @@ test_pdb :: proc(file_content : []byte) {
     bytes.reader_init(&br, file_content)
     bs := bytes.reader_to_stream(&br)
     bsr := io.Reader{bs}
-    using libpdb
+    using pdb
     sb, sbOk := read_superblock(bsr)
     if !sbOk {
         log.errorf("Unable to read superBlock")

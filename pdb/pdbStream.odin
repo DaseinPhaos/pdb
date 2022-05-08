@@ -1,5 +1,5 @@
 //! the pdb info stream, reference: https://llvm.org/docs/PDB/PdbStream.html
-package libpdb
+package pdb
 import "core:log"
 import "core:strings"
 

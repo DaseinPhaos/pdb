@@ -1,5 +1,5 @@
 //! https://llvm.org/docs/PDB/HashTable.html
-package libpdb
+package pdb
 import "core:log"
 
 PdbHashTable :: struct($Value: typeid) {
