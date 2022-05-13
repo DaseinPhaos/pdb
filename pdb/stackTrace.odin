@@ -235,7 +235,11 @@ parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool, srcCodeLo
             nameBuf : [windows.MAX_PATH]u16
             pBuf := &nameBuf[0]
             nameLen := windows.GetModuleFileNameW(windows.HMODULE(stackFrame.imgBaseAddr), pBuf, len(nameBuf))
-            mi.filePath = windows.wstring_to_utf8(pBuf, cast(int)nameLen)
+            path, err := windows.wstring_to_utf8(pBuf, cast(int)nameLen)
+            if err != nil {
+                continue
+            }
+            mi.filePath = path
             peFile, peFileErr := os.open(mi.filePath)
             if peFileErr != 0 {
                 // skip images that we cannot open
