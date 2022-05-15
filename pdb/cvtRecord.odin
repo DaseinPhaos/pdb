@@ -1,7 +1,6 @@
 //! CodeView Type records, reference: https://llvm.org/docs/PDB/CodeViewTypes.html
 package pdb
 import "core:log"
-import "core:strings"
 import "core:intrinsics"
 
 // |           Unused          | Mode |   Kind   |

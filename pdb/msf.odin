@@ -1,6 +1,5 @@
 //! reference: https://llvm.org/docs/PDB/MsfFile.html https://llvm.org/docs/PDB/index.html
 package pdb
-import "core:fmt"
 import "core:strings"
 import "core:mem"
 import "core:log"

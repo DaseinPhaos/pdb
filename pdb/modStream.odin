@@ -2,7 +2,6 @@
 package pdb
 import "core:log"
 import "core:slice"
-import "core:strings"
 import "core:intrinsics"
 
 ModStreamHeader :: struct #packed {
@@ -18,7 +17,7 @@ ModStreamSignature :: enum u32le {C7 = 1, C11 = 2, C13 = 4,}
 
 parse_mod_stream :: proc(streamDir: ^StreamDirectory, modi: ^SlimDbiMod) -> (ret: SlimModData) {
     modSr := get_stream_reader(streamDir, modi.moduleSymStream)
-    modHeader := readv(&modSr, ModStreamHeader)
+    readv(&modSr, ModStreamHeader)
     ret.modStream = modSr.data[modSr.offset:]
 
     { // symbol substream

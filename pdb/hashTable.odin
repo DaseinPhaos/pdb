@@ -1,6 +1,5 @@
 //! https://llvm.org/docs/PDB/HashTable.html
 package pdb
-import "core:log"
 
 PdbHashTable :: struct($Value: typeid) {
     size: u32le,

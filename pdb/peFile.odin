@@ -4,7 +4,6 @@ import "core:log"
 import "core:fmt"
 import "core:slice"
 import "core:io"
-import "core:mem"
 
 PE_Signature_OffsetIdxPos :: 0x3c // ?u32le?
 PE_Signature :u32le: 0x0000_4550 //PE\0\0

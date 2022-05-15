@@ -1,5 +1,4 @@
 package pdb
-import "core:log"
 import "core:os"
 import "core:slice"
 import "core:strings"
