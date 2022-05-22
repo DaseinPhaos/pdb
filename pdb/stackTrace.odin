@@ -375,12 +375,9 @@ parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool, srcCodeLo
     return
 }
 
-MS_VC_EXCEPTION :: 0x406D1388 // part of VisualC protocol to set thread names, see https://github.com/go-delve/delve/pull/1384
-
 dump_stack_trace_on_exception :: proc "stdcall" (ExceptionInfo: ^windows.EXCEPTION_POINTERS) -> windows.LONG {
     if ExceptionInfo.ExceptionRecord != nil {
-        switch ExceptionInfo.ExceptionRecord.ExceptionCode {
-        case MS_VC_EXCEPTION:
+        if ExceptionInfo.ExceptionRecord.ExceptionCode < 0x8000_0000 {
             return windows.EXCEPTION_CONTINUE_SEARCH
         }
         runtime.print_string("ExceptionType: 0x")
