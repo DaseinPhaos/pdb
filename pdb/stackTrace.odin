@@ -186,7 +186,7 @@ capture_stack_trace :: #force_no_inline proc "contextless" (traceBuf: []StackFra
     return
 }
 
-capture_strack_trace_from_context :: proc "contextless" (ctx: ^CONTEXT, traceBuf: []StackFrame) -> (count : uint) {
+capture_stack_trace_from_context :: proc "contextless" (ctx: ^CONTEXT, traceBuf: []StackFrame) -> (count : uint) {
     fImgBase : DWORD64
     handlerData : rawptr
     establisherFrame : DWORD64
@@ -375,13 +375,24 @@ parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool, srcCodeLo
     return
 }
 
+MS_VC_EXCEPTION :: 0x406D1388 // part of VisualC protocol to set thread names, see https://github.com/go-delve/delve/pull/1384
+
 dump_stack_trace_on_exception :: proc "stdcall" (ExceptionInfo: ^windows.EXCEPTION_POINTERS) -> windows.LONG {
+    if ExceptionInfo.ExceptionRecord != nil {
+        switch ExceptionInfo.ExceptionRecord.ExceptionCode {
+        case MS_VC_EXCEPTION:
+            return windows.EXCEPTION_CONTINUE_SEARCH
+        }
+        runtime.print_string("ExceptionType: 0x")
+        print_u64_x(u64(ExceptionInfo.ExceptionRecord.ExceptionCode))
+        runtime.print_string(", Flags: 0x")
+        print_u64_x(u64(ExceptionInfo.ExceptionRecord.ExceptionFlags))
+    }
     context = runtime.default_context() // TODO: use a more efficient one-off allocators
     ctxt := cast(^CONTEXT)ExceptionInfo.ContextRecord
     traceBuf : [64]StackFrame
-    traceCount := capture_strack_trace_from_context(ctxt, traceBuf[:])
-    // ? exception information should be printed here as well
-    runtime.print_string("Stacktrace:")
+    traceCount := capture_stack_trace_from_context(ctxt, traceBuf[:])
+    runtime.print_string(" Stacktrace:")
     runtime.print_uint(traceCount)
     runtime.print_string("\n")
     srcCodeLocs : RingBuffer(runtime.Source_Code_Location)
@@ -391,7 +402,23 @@ dump_stack_trace_on_exception :: proc "stdcall" (ExceptionInfo: ^windows.EXCEPTI
         scl := get_rb(&srcCodeLocs, i)
         print_source_code_location(scl)
     }
-    return 0 // EXCEPTION_CONTINUE_SEARCH
+    return windows.EXCEPTION_CONTINUE_SEARCH
+}
+
+print_u64_x :: proc "contextless" (x: u64) #no_bounds_check {
+    using runtime
+    digits := "0123456789abcdefghijklmnopqrstuvwxyz"
+    a: [129]byte
+	i := len(a)
+	b := u64(16)
+	u := x
+	for u >= b {
+		i -= 1; a[i] = digits[u % b]
+		u /= b
+	}
+	i -= 1; a[i] = digits[u % b]
+
+	os_write(a[i:])
 }
 
 print_source_code_location :: proc (using scl: runtime.Source_Code_Location) {
