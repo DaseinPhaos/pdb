@@ -7,6 +7,7 @@ import "core:runtime"
 import "core:io"
 import windows "core:sys/windows"
 foreign import ntdll_lib "system:ntdll.lib"
+foreign import kernel32 "system:Kernel32.lib"
 
 @(default_calling_convention="std")
 foreign ntdll_lib {
@@ -25,6 +26,11 @@ foreign ntdll_lib {
     ) -> EXCEPTION_ROUTINE ---
 }
 
+@(default_calling_convention="stdcall")
+foreign kernel32 {
+    SetUnhandledExceptionFilter :: proc(lpTopLevelExceptionFilter: PTOP_LEVEL_EXCEPTION_FILTER) -> PTOP_LEVEL_EXCEPTION_FILTER ---
+}
+
 RUNTIME_FUNCTION :: struct {
     BeginAddress : DWORD,
     EndAddress   : DWORD,
@@ -36,6 +42,7 @@ RUNTIME_FUNCTION :: struct {
 BYTE    :: windows.BYTE
 WORD    :: windows.WORD
 DWORD   :: windows.DWORD
+PTOP_LEVEL_EXCEPTION_FILTER :: windows.PVECTORED_EXCEPTION_HANDLER
 DWORD64 :: u64
 NEON128 :: struct {Low: u64, High: i64,}
 ARM64_MAX_BREAKPOINTS :: 8
@@ -377,9 +384,6 @@ parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool, srcCodeLo
 
 dump_stack_trace_on_exception :: proc "stdcall" (ExceptionInfo: ^windows.EXCEPTION_POINTERS) -> windows.LONG {
     if ExceptionInfo.ExceptionRecord != nil {
-        if ExceptionInfo.ExceptionRecord.ExceptionCode < 0x8000_0000 {
-            return windows.EXCEPTION_CONTINUE_SEARCH
-        }
         runtime.print_string("ExceptionType: 0x")
         print_u64_x(u64(ExceptionInfo.ExceptionRecord.ExceptionCode))
         runtime.print_string(", Flags: 0x")
