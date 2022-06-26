@@ -5,6 +5,7 @@ import "core:strings"
 import "core:intrinsics"
 import "core:runtime"
 import "core:io"
+import "core:sync"
 import windows "core:sys/windows"
 foreign import ntdll_lib "system:ntdll.lib"
 foreign import kernel32 "system:Kernel32.lib"
@@ -382,14 +383,17 @@ parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool, srcCodeLo
     return
 }
 
+_dumpStackTrackMutex : sync.Atomic_Mutex
+
 dump_stack_trace_on_exception :: proc "stdcall" (ExceptionInfo: ^windows.EXCEPTION_POINTERS) -> windows.LONG {
+    context = runtime.default_context() // TODO: use a more efficient one-off allocators
+    sync.guard(&_dumpStackTrackMutex)
     if ExceptionInfo.ExceptionRecord != nil {
         runtime.print_string("ExceptionType: 0x")
         print_u64_x(u64(ExceptionInfo.ExceptionRecord.ExceptionCode))
         runtime.print_string(", Flags: 0x")
         print_u64_x(u64(ExceptionInfo.ExceptionRecord.ExceptionFlags))
     }
-    context = runtime.default_context() // TODO: use a more efficient one-off allocators
     ctxt := cast(^CONTEXT)ExceptionInfo.ContextRecord
     traceBuf : [64]StackFrame
     traceCount := capture_stack_trace_from_context(ctxt, traceBuf[:])
