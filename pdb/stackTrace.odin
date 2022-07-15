@@ -6,6 +6,7 @@ import "core:intrinsics"
 import "core:runtime"
 import "core:io"
 import "core:sync"
+import "core:path/filepath"
 import windows "core:sys/windows"
 foreign import ntdll_lib "system:ntdll.lib"
 foreign import kernel32 "system:Kernel32.lib"
@@ -289,7 +290,13 @@ parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool, srcCodeLo
                 }
             }
             // TODO: if pdbPath is still not found by now, we should look into other possible directories for them
-            if pdbFile, pdbErr := os.open(mi.pdbPath); pdbErr == 0 {
+            pdbFile, pdbErr := os.open(mi.pdbPath)
+            if pdbErr != 0 { // try load pdb at the same path as src exe
+                toConcatenate := []string {filepath.stem(mi.filePath), ".pdb"}
+                mi.pdbPath = strings.concatenate(toConcatenate)
+                pdbFile, pdbErr = os.open(mi.pdbPath)
+            }
+            if pdbErr == 0 {
                 mi.pdbHandle = pdbFile
                 pdbr := io.Reader{os.stream_from_handle(pdbFile)}
                 if streamDir, sdOk := find_stream_dir(pdbr); sdOk {
