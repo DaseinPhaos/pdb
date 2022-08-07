@@ -1,11 +1,10 @@
 package demo
 import "pdb"
-import windows "core:sys/windows"
 import "core:fmt"
 
 main ::proc() {
     // register exception handler
-    windows.AddVectoredExceptionHandler(1, pdb.dump_stack_trace_on_exception)
+    pdb.SetUnhandledExceptionFilter(pdb.dump_stack_trace_on_exception)
 
     foo()
 }
