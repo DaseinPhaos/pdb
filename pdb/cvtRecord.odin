@@ -73,7 +73,7 @@ TypeIndex_Kind :: enum u32le {
     Boolean32 = 0x0032,  // 32 bit boolean
     Boolean64 = 0x0033,  // 64 bit boolean
     Boolean128 = 0x0034, // 128 bit boolean
-};
+}
 
 TypeIndex_Mode :: enum u32le {
     Direct = 0,        // Not a pointer
@@ -84,7 +84,7 @@ TypeIndex_Mode :: enum u32le {
     FarPointer32 = 5,  // 32 bit far pointer
     NearPointer64 = 6, // 64 bit near pointer
     NearPointer128 = 7,// 128 bit near pointer
-};
+}
 
 CvtRecordHeader :: struct #packed {
     length  : u16le, // record length excluding this 2 byte field
@@ -236,7 +236,7 @@ CvtPointer_Kind :: enum u8 {
     Near32 = 0x0a,                // 32 bit pointer
     Far32 = 0x0b,                 // 16:32 pointer
     Near64 = 0x0c,                // 64 bit pointer
-};
+}
 
 CvtPointer_Mode :: enum u8 {
     Pointer = 0x00,                 // "normal" pointer
@@ -244,7 +244,7 @@ CvtPointer_Mode :: enum u8 {
     PointerToDataMember = 0x02,     // pointer to data member
     PointerToMemberFunction = 0x03, // pointer to member function
     RValueReference = 0x04,         // r-value reference
-};
+}
 
 CvtPointer_Modifiers :: enum u8 {
     None = 0x00,                    // "normal" pointer
@@ -253,13 +253,13 @@ CvtPointer_Modifiers :: enum u8 {
     Const = 0x04,                   // marked const
     Unaligned = 0x08,               // marked unaligned
     Restrict = 0x10,                // marked restrict
-};
+}
 
 CvtPointer_Flags :: enum u8 {
     WinRTSmartPointer = 0x01,       // a WinRT smart pointer
     LValueRefThisPointer = 0x02,    // 'this' pointer of a member function with ref qualifier (e.g. void X::foo() &)
     RValueRefThisPointer = 0x04,    // 'this' pointer of a member function with ref qualifier (e.g. void X::foo() &&)
-};
+}
 
 // TODO: member point info
 //====type record for LF_BITFIELD
