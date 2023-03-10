@@ -223,7 +223,7 @@ _PEModuleInfo :: struct {
     ipiOffsetBuf : TpiIndexOffsetBuffer,
 }
 
-parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool, srcCodeLocs: ^RingBuffer(runtime.Source_Code_Location)) {
+parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool, srcCodeLocs: ^RingBuffer(runtime.Source_Code_Location)) -> (noDebugInfoFound: bool) {
     miMap := make(map[uintptr]_PEModuleInfo, 8, context.temp_allocator)
     defer {
         for _, pemi in miMap {
@@ -233,7 +233,7 @@ parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool, srcCodeLo
     }
     mdMap := make(map[uintptr]SlimModData, 8, context.temp_allocator)
     defer delete(mdMap)
-    //for stackFrame, i in stackTrace {
+    debugInfoFoundCount := 0
     for i := len(stackTrace)-1; i>=0; i-=1 {
         stackFrame := stackTrace[i]
         mi, ok := miMap[stackFrame.imgBaseAddr]
@@ -309,6 +309,7 @@ parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool, srcCodeLo
                     _, ipiOffsetBuf := parse_tpi_stream(&mi.ipiStream, &streamDir)
                     mi.ipiOffsetBuf = ipiOffsetBuf
                 }
+                debugInfoFoundCount += 1
             }
         }
         pcRva := u32le(stackFrame.progCounter - stackFrame.imgBaseAddr)
@@ -387,7 +388,7 @@ parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool, srcCodeLo
             push_front_rb(srcCodeLocs, scl)
         }
     }
-    return
+    return debugInfoFoundCount == 0
 }
 
 _dumpStackTrackMutex : sync.Atomic_Mutex
@@ -409,10 +410,13 @@ dump_stack_trace_on_exception :: proc "stdcall" (ExceptionInfo: ^windows.EXCEPTI
     runtime.print_string("\n")
     srcCodeLocs : RingBuffer(runtime.Source_Code_Location)
     init_rb(&srcCodeLocs, 64)
-    parse_stack_trace(traceBuf[:traceCount], true, &srcCodeLocs)
+    noDebugInfoFound := parse_stack_trace(traceBuf[:traceCount], true, &srcCodeLocs)
     for i in 0..<srcCodeLocs.len {
         scl := get_rb(&srcCodeLocs, i)
         print_source_code_location(scl)
+    }
+    if noDebugInfoFound {
+        runtime.print_string("pdb files not found for all binaries. Compile with `-debug` flag to generate pdb files for the binary.")
     }
     return windows.EXCEPTION_CONTINUE_SEARCH
 }
