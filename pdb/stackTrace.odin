@@ -416,7 +416,7 @@ dump_stack_trace_on_exception :: proc "stdcall" (ExceptionInfo: ^windows.EXCEPTI
         print_source_code_location(scl)
     }
     if noDebugInfoFound {
-        runtime.print_string("pdb files not found for all binaries. Compile with `-debug` flag to generate pdb files for the binary.")
+        runtime.print_string("pdb files not found for any binaries. Compile with `-debug` flag to generate pdb files for the binary.")
     }
     return windows.EXCEPTION_CONTINUE_SEARCH
 }
