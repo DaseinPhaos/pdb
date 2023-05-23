@@ -177,16 +177,16 @@ CvtRecordKind :: enum u16le {
 }
 
 read_int_record :: proc(this: ^BlocksReader) -> i128le {
-    numKind := readv(this, CvtRecordKind)
+    numKind := read_packed(this, CvtRecordKind)
     #partial switch numKind {
-    case .LF_CHAR: return cast(i128le)readv(this, i8)
-    case .LF_SHORT: return cast(i128le)readv(this, i16le)
-    case .LF_USHORT: return cast(i128le)readv(this, u16le)
-    case .LF_LONG: return cast(i128le)readv(this, i32le)
-    case .LF_ULONG: return cast(i128le)readv(this, u32le)
-    case .LF_QUADWORD: return cast(i128le)readv(this, i64le)
-    case .LF_UQUADWORD: return cast(i128le)readv(this, u64le)
-    case .LF_OCTWORD: return readv(this, i128le)
+    case .LF_CHAR: return cast(i128le)read_packed(this, i8)
+    case .LF_SHORT: return cast(i128le)read_packed(this, i16le)
+    case .LF_USHORT: return cast(i128le)read_packed(this, u16le)
+    case .LF_LONG: return cast(i128le)read_packed(this, i32le)
+    case .LF_ULONG: return cast(i128le)read_packed(this, u32le)
+    case .LF_QUADWORD: return cast(i128le)read_packed(this, i64le)
+    case .LF_UQUADWORD: return cast(i128le)read_packed(this, u64le)
+    case .LF_OCTWORD: return read_packed(this, i128le)
     case: {
         if uint(numKind) < uint(CvtRecordKind.LF_NUMERIC) {
             return i128le(numKind)
@@ -308,7 +308,7 @@ CvtBuildInfo :: struct {
     args : []CvItemId,
 }
 read_cvtBuildInfo :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where intrinsics.type_is_subtype_of(T, CvtBuildInfo) {
-    argCount := readv(this, u16le)
+    argCount := read_packed(this, u16le)
     ret.args = read_packed_array(this, uint(argCount), CvItemId)
     return
 }
@@ -347,7 +347,7 @@ CvtProc_ArgList :: struct {
     args : []TypeIndex,
 }
 read_cvtfArgList :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where intrinsics.type_is_subtype_of(T, CvtProc_ArgList) {
-    argCount := readv(this, u32le)
+    argCount := read_packed(this, u32le)
     ret.args = read_packed_array(this, uint(argCount), TypeIndex)
     return
 }
@@ -372,20 +372,20 @@ read_cvtFieldList :: proc(this: ^BlocksReader, endOffset: uint, $T: typeid) -> (
             }
         }
         f : CvtField
-        f.kind = readv(this, CvtRecordKind)
+        f.kind = read_packed(this, CvtRecordKind)
         #partial switch f.kind {
         case .LF_BCLASS: {
-            f.value = readv(this, CvtField_BClass)
+            f.value = read_cvtfBclass(this, CvtField_BClass)
         }
         case .LF_VBCLASS:fallthrough
         case .LF_IVBCLASS: {
-            f.value = readv(this, CvtField_Vbclass)
+            f.value = read_cvtfVbclass(this, CvtField_Vbclass)
         }
         case .LF_MEMBER: {
-            f.value = readv(this, CvtField_Member)
+            f.value = read_cvtfMember(this, CvtField_Member)
         }
         case .LF_ENUMERATE: {
-            f.value = readv(this, CvtField_Enumerate)
+            f.value = read_cvtfEnumerate(this, CvtField_Enumerate)
         }
         case: { //?
             log.debugf("unrecognized: %v", f.kind)
@@ -405,8 +405,8 @@ CvtField_BClass :: struct {
 }
 read_cvtfBclass :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T)
     where intrinsics.type_is_subtype_of(T, CvtField_BClass) {
-    ret.attr = readv(this, CvtField_Attribute)
-    ret.baseType = readv(this, TypeIndex)
+    ret.attr = read_packed(this, CvtField_Attribute)
+    ret.baseType = read_packed(this, TypeIndex)
     ret.offset = cast(uint)read_int_record(this)
     return
 }
@@ -420,9 +420,9 @@ CvtField_Vbclass :: struct {
     vbo     : uint, // virutal base offset from vbtable
 }
 read_cvtfVbclass :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where intrinsics.type_is_subtype_of(T, CvtField_Vbclass) {
-    ret.attr = readv(this, CvtField_Attribute)
-    ret.baseType = readv(this, TypeIndex)
-    ret.vbptr = readv(this, TypeIndex)
+    ret.attr = read_packed(this, CvtField_Attribute)
+    ret.baseType = read_packed(this, TypeIndex)
+    ret.vbptr = read_packed(this, TypeIndex)
     ret.vbpo = cast(uint)read_int_record(this)
     ret.vbo = cast(uint)read_int_record(this)
     return
@@ -436,8 +436,8 @@ CvtField_Member :: struct {
     name    : string,
 }
 read_cvtfMember :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where intrinsics.type_is_subtype_of(T, CvtField_Member) {
-    ret.attr = readv(this, CvtField_Attribute)
-    ret.memType = readv(this, TypeIndex)
+    ret.attr = read_packed(this, CvtField_Attribute)
+    ret.memType = read_packed(this, TypeIndex)
     ret.offset = cast(uint)read_int_record(this)
     ret.name = read_length_prefixed_name(this)
     return
@@ -450,7 +450,7 @@ CvtField_Enumerate :: struct {
     name : string,
 }
 read_cvtfEnumerate :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where intrinsics.type_is_subtype_of(T, CvtField_Enumerate) {
-    ret.attr = readv(this, CvtField_Attribute)
+    ret.attr = read_packed(this, CvtField_Attribute)
     ret.value = cast(uint)read_int_record(this)
     ret.name = read_length_prefixed_name(this)
     return
@@ -477,9 +477,9 @@ CvtUnion :: struct {
     name      : string,
 }
 read_cvtUnion :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where intrinsics.type_is_subtype_of(T, CvtUnion) {
-    ret.elemCount = readv(this, u16le)
-    ret.props = readv(this, CvtStruct_Prop)
-    ret.field = readv(this, TypeIndex)
+    ret.elemCount = read_packed(this, u16le)
+    ret.props = read_packed(this, CvtStruct_Prop)
+    ret.field = read_packed(this, TypeIndex)
     ret.size = cast(uint)read_int_record(this)
     ret.name = read_length_prefixed_name(this)
     return
@@ -579,41 +579,41 @@ parse_cvt :: proc(this: ^BlocksReader, cvtHeader : CvtRecordHeader) -> (v: CodeV
     v.kind = cvtHeader.kind
     #partial switch  cvtHeader.kind {
         case .LF_POINTER:
-            v.value = readv(this, CvtPointer)
+            v.value = read_packed(this, CvtPointer)
         case .LF_PROCEDURE:
-            v.value = readv(this, CvtProc)
+            v.value = read_packed(this, CvtProc)
         case .LF_ARGLIST:fallthrough
         case .LF_SUBSTR_LIST:
-            v.value = readv(this, CvtProc_ArgList)
+            v.value = read_cvtfArgList(this, CvtProc_ArgList)
         case .LF_CLASS:fallthrough
         case .LF_STRUCTURE:fallthrough
         case .LF_INTERFACE:
-            v.value = readv(this, CvtStruct)
+            v.value = read_with_size_and_trailing_name(this, CvtStruct)
         case .LF_ENUM:
-            v.value = readv(this, CvtEnum)
+            v.value = read_with_trailing_name(this, CvtEnum)
         case .LF_ARRAY:
-            v.value = readv(this, CvtArray)
+            v.value = read_with_size_and_trailing_name(this, CvtArray)
         case .LF_UNION:
-            v.value = readv(this, CvtUnion)
+            v.value = read_cvtUnion(this, CvtUnion)
         case .LF_MODIFIER:
-            v.value = readv(this, CvtModifier)
+            v.value = read_packed(this, CvtModifier)
         case .LF_MFUNCTION:
-            v.value = readv(this, CvtMFunction)
+            v.value = read_packed(this, CvtMFunction)
         case .LF_BITFIELD:
-            v.value = readv(this, CvtBitfield)
+            v.value = read_packed(this, CvtBitfield)
         case .LF_STRING_ID:
-            v.value = readv(this, CvtStringId)
+            v.value = read_with_trailing_name(this, CvtStringId)
         case .LF_FUNC_ID:
-            v.value = readv(this, CvtFuncId)
+            v.value = read_with_trailing_name(this, CvtFuncId)
         case .LF_MFUNC_ID:
-            v.value = readv(this, CvtMfuncId)
+            v.value = read_with_trailing_name(this, CvtMfuncId)
         case .LF_UDT_MOD_SRC_LINE:
-            v.value = readv(this, CvtUdtModSrcLine)
+            v.value = read_packed(this, CvtUdtModSrcLine)
         case .LF_BUILDINFO:
-            v.value = readv(this, CvtBuildInfo)
+            v.value = read_cvtBuildInfo(this, CvtBuildInfo)
         case .LF_FIELDLIST:
             endOffset := this.offset + uint(cvtHeader.length) - size_of(CvtRecordKind)
-            v.value = readv(this, endOffset, CvtFieldList)
+            v.value = read_cvtFieldList(this, endOffset, CvtFieldList)
         // case .LF_VTSHAPE: // TODO:
         // case .LF_METHODLIST:  //?
         case: log.debugf("Unhandled %v", cvtHeader.kind)

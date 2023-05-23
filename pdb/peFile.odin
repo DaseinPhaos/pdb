@@ -276,22 +276,22 @@ parse_pe_data_dirs :: proc(r: io.Stream) -> (ret : PEOptHdr_DataDirectories, err
 
 seek_to_pe_headers :: proc(this: ^BlocksReader) {
     this.offset = PE_Signature_OffsetIdxPos
-    peSigOffset := readv(this, u32le)
+    peSigOffset := read_packed(this, u32le)
     this.offset = uint(peSigOffset)
 }
 
 read_pe_headers :: proc(this: ^BlocksReader) -> (coffHdr : CoffFileHeader, optHdr: union{PEOptHdr, PEOptHdrPlus}, dataDirs : PEOptHdr_DataDirectories) {
     // start from PE_Signature
-    signature := readv(this, u32le)
+    signature := read_packed(this, u32le)
     if signature != PE_Signature {
         log.warnf("Invalid signature 0x%x", signature)
         return
     }
-    coffHdr = readv(this, CoffFileHeader)
-    optHdrMagic := readv(this, PEOptHdrMagic)
+    coffHdr = read_packed(this, CoffFileHeader)
+    optHdrMagic := read_packed(this, PEOptHdrMagic)
     switch optHdrMagic {
-    case .PE32: optHdr = readv(this, PEOptHdr)
-    case .PE32Plus: optHdr = readv(this, PEOptHdrPlus)
+    case .PE32: optHdr = read_packed(this, PEOptHdr)
+    case .PE32Plus: optHdr = read_packed(this, PEOptHdrPlus)
     case: assert(false, "Invalid PEOptional Header Magic number")
     }
     { // dataDir, limited read
@@ -304,7 +304,7 @@ read_pe_headers :: proc(this: ^BlocksReader) -> (coffHdr : CoffFileHeader, optHd
         assert(dataDirCount * size_of(PEOptHdr_DataDirectory) <= size_of(PEOptHdr_DataDirectories), "dataDir overflow")
         ddSlice := slice.from_ptr(cast(^PEOptHdr_DataDirectory)&dataDirs, int(dataDirCount))
         for i in 0..<len(ddSlice) {
-            ddSlice[i] = readv(this, PEOptHdr_DataDirectory)
+            ddSlice[i] = read_packed(this, PEOptHdr_DataDirectory)
         }
     }
     return

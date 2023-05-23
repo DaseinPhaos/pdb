@@ -12,7 +12,7 @@ NamesStream_HeaderMagic :u32le: 0xeffe_effe
 NamesStream_StartOffset :: size_of(NamesStreamHeader)
 
 parse_names_stream :: proc(this: ^BlocksReader) -> (header: NamesStreamHeader) {
-    header = readv(this, NamesStreamHeader)
+    header = read_packed(this, NamesStreamHeader)
     if header.magic != NamesStream_HeaderMagic {
         log.warnf("Unrecognized magic 0x%x for pdbNaming table..", header.magic)
     }

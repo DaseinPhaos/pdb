@@ -413,7 +413,7 @@ CvsInlineUncompressedLine :: struct {
 
 read_cvsInlineSite :: proc(using this: ^BlocksReader, blockEnd: uint, $T: typeid) -> (ret: T)
     where intrinsics.type_is_subtype_of(T, CvsInlineSite) {
-    ret._base = readv(this, type_of(ret._base))
+    ret._base = read_packed(this, type_of(ret._base))
     ret.lines = parse_binary_annotation(this, blockEnd)
     return
 }
@@ -508,12 +508,12 @@ parse_binary_annotation :: proc(using this: ^BlocksReader, blockEnd: uint) -> (r
     return
 }
 uncompress_binary_annonation :: proc(using this: ^BlocksReader) -> u32le {
-    b1 := u32le(readv(this, u8))
+    b1 := u32le(read_packed(this, u8))
     if (b1 & 0x80) == 0 do return b1
-    b2 := u32le(readv(this, u8))
+    b2 := u32le(read_packed(this, u8))
     if (b1 & 0xc0) == 0x80 do return ((b1 & 0x3f) << 8) | b2
-    b3 := u32le(readv(this, u8))
-    b4 := u32le(readv(this, u8))
+    b3 := u32le(read_packed(this, u8))
+    b4 := u32le(read_packed(this, u8))
     return ((b1 & 0x1f) << 24) | (b2 << 16) | (b3 << 8) | b4
 }
 uncompress_binary_annonation_signed :: proc(using this: ^BlocksReader) -> i32le {
@@ -540,7 +540,7 @@ CvsFunctionList :: struct {
 }
 read_cvsFunctionList :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T)
     where intrinsics.type_is_subtype_of(T, CvsFunctionList) {
-    count := readv(this, u32le)
+    count := read_packed(this, u32le)
     ret.funcs = read_packed_array(this, uint(count), TypeIndex)
     return
 }
@@ -635,7 +635,7 @@ read_with_trailing_rag :: #force_inline proc(this: ^BlocksReader, recLen: u16le,
           intrinsics.type_has_field(T, "_rag"), 
           intrinsics.type_field_index_of(T, "_rag") == 1,
           intrinsics.type_struct_field_count(T) == 2 {
-    ret._base = readv(this, type_of(ret._base))
+    ret._base = read_packed(this, type_of(ret._base))
     ret._rag = read_cvsLvarAddrRangeAndGap(this, recLen, size_of(ret._base))
     return
 }
@@ -653,7 +653,7 @@ CvsLvarAddrGap :: struct #packed {
     length    : u16le,
 }
 read_cvsLvarAddrRangeAndGap :: proc (this: ^BlocksReader, recLen : u16le, headLen: int) -> (ret : CvsLvarAddrRangeAndGap) {
-    ret.range = readv(this, type_of(ret.range))
+    ret.range = read_packed(this, type_of(ret.range))
     gapsSize := int(recLen) - size_of(CvsRecordKind) - headLen - size_of(ret.range)
     gapsCount := gapsSize / size_of(CvsLvarAddrGap)
     if gapsCount <= 0 do return
@@ -670,97 +670,97 @@ parse_cvs :: proc(this: ^BlocksReader, cvsHeader : CvsRecordHeader) -> (v: CodeV
     v.kind = cvsHeader.kind
     switch  cvsHeader.kind {
     case .S_PUB32:
-        v.value = readv(this, CvsPub32)
+        v.value = read_with_trailing_name(this, CvsPub32)
     case .S_PROCREF:fallthrough
     case .S_DATAREF:fallthrough
     case .S_LPROCREF:
-        v.value = readv(this, CvsRef2)
+        v.value = read_with_trailing_name(this, CvsRef2)
     case .S_OBJNAME:
-        v.value = readv(this, CvsObjName)
+        v.value = read_with_trailing_name(this, CvsObjName)
     case .S_THUNK32:
-        v.value = readv(this, CvsThunk32)
+        v.value = read_with_trailing_name(this, CvsThunk32)
     case .S_LABEL32:
-        v.value = readv(this, CvsLabel32)
+        v.value = read_with_trailing_name(this, CvsLabel32)
     case .S_BPREL32:
-        v.value = readv(this, CvsBPRel32)
+        v.value = read_with_trailing_name(this, CvsBPRel32)
     case .S_REGISTER:
-        v.value = readv(this, CvsRegister)
+        v.value = read_with_trailing_name(this, CvsRegister)
     case .S_COMPILE3:
-        v.value = readv(this, CvsCompile3)
+        v.value = read_with_trailing_name(this, CvsCompile3)
     case .S_BUILDINFO:
-        v.value = readv(this, CvsBuildInfo)
+        v.value = read_packed(this, CvsBuildInfo)
     case .S_LDATA32:fallthrough
     case .S_GDATA32:fallthrough
     case .S_LMANDATA:fallthrough
     case .S_GMANDATA:fallthrough
     case .S_LTHREAD32:fallthrough
     case .S_GTHREAD32:
-        v.value = readv(this, CvsData32)
+        v.value = read_with_trailing_name(this, CvsData32)
     case .S_LOCAL:
-        v.value = readv(this, CvsLocal)
+        v.value = read_with_trailing_name(this, CvsLocal)
     case .S_BLOCK32:
-        v.value = readv(this, CvsBlocks32)
+        v.value = read_with_trailing_name(this, CvsBlocks32)
     case .S_FRAMEPROC:
-        v.value = readv(this, CvsFrameProc)
+        v.value = read_packed(this, CvsFrameProc)
     case .S_COMPILE2:
-        v.value = readv(this, CvsCompile2)
+        v.value = read_with_trailing_name(this, CvsCompile2)
     case .S_UNAMESPACE:
-        v.value = readv(this, CvsUnamespace)
+        v.value = read_with_trailing_name(this, CvsUnamespace)
     case .S_TRAMPOLINE:
-        v.value = readv(this, CvsTrampoline)
+        v.value = read_packed(this, CvsTrampoline)
     case .S_SECTION:
-        v.value = readv(this, CvsSection)
+        v.value = read_with_trailing_name(this, CvsSection)
     case .S_COFFGROUP:
-        v.value = readv(this, CvsCoffGroup)
+        v.value = read_with_trailing_name(this, CvsCoffGroup)
     case .S_EXPORT:
-        v.value = readv(this, CvsExport)
+        v.value = read_with_trailing_name(this, CvsExport)
     case .S_CALLSITEINFO:
-        v.value = readv(this, CvsCallsiteInfo)
+        v.value = read_packed(this, CvsCallsiteInfo)
     case .S_FRAMECOOKIE:
-        v.value = readv(this, CvsFrameCookie)
+        v.value = read_packed(this, CvsFrameCookie)
     case .S_REGREL32:
-        v.value = readv(this, CvsRegRel32)
+        v.value = read_with_trailing_name(this, CvsRegRel32)
     case .S_ENVBLOCK:
-        v.value = readv(this, CvsEnvBlock)
+        v.value = read_with_trailing_name(this, CvsEnvBlock)
     case .S_INLINESITE:
-        v.value = readv(this, this.offset + uint(cvsHeader.length)-size_of(CvsRecordKind), CvsInlineSite)
+        v.value = read_cvsInlineSite(this, this.offset + uint(cvsHeader.length)-size_of(CvsRecordKind), CvsInlineSite)
     case .S_FILESTATIC:
-        v.value = readv(this, CvsFileStatic)
+        v.value = read_with_trailing_name(this, CvsFileStatic)
     case .S_CALLEES:fallthrough
     case .S_CALLERS:
-        v.value = readv(this, CvsFunctionList)
+        v.value = read_cvsFunctionList(this, CvsFunctionList)
     case .S_HEAPALLOCSITE:
-        v.value = readv(this, CvsHeapAllocSite)
+        v.value = read_packed(this, CvsHeapAllocSite)
     case .S_CONSTANT:fallthrough
     case .S_MANCONSTANT:
-        v.value = readv(this, CvsConstant)
+        v.value = read_with_trailing_name(this, CvsConstant)
     case .S_UDT:
-        v.value = readv(this, CvsUDT)
+        v.value = read_with_trailing_name(this, CvsUDT)
     case .S_LPROC32:fallthrough
     case .S_LPROC32_ID:fallthrough
     case .S_LPROC32_DPC:fallthrough
     case .S_LPROC32_DPC_ID:fallthrough
     case .S_GPROC32:fallthrough
     case .S_GPROC32_ID:
-        v.value = readv(this, CvsProc32)
+        v.value = read_with_trailing_name(this, CvsProc32)
     case .S_INLINESITE_END:fallthrough
     case .S_PROC_ID_END:fallthrough
     case .S_END:
         v.value = CvsEnd{}
     case .S_DEFRANGE:
-        v.value = readv(this, cvsHeader.length, CvsDefRange)
+        v.value = read_with_trailing_rag(this, cvsHeader.length, CvsDefRange)
     case .S_DEFRANGE_SUBFIELD:
-        v.value = readv(this, cvsHeader.length, CvsDefRangeSubfield)
+        v.value = read_with_trailing_rag(this, cvsHeader.length, CvsDefRangeSubfield)
     case .S_DEFRANGE_REGISTER:
-        v.value = readv(this, cvsHeader.length, CvsDefRangeRegister)
+        v.value = read_with_trailing_rag(this, cvsHeader.length, CvsDefRangeRegister)
     case .S_DEFRANGE_REGISTER_REL:
-        v.value = readv(this, cvsHeader.length, CvsDefRangeRegisterRel)
+        v.value = read_with_trailing_rag(this, cvsHeader.length, CvsDefRangeRegisterRel)
     case .S_DEFRANGE_SUBFIELD_REGISTER:
-        v.value = readv(this, cvsHeader.length, CvsDefRangeSubfieldRegister)
+        v.value = read_with_trailing_rag(this, cvsHeader.length, CvsDefRangeSubfieldRegister)
     case .S_DEFRANGE_FRAMEPOINTER_REL:
-        v.value = readv(this, cvsHeader.length, CvsDefRangeFramePointerRel)
+        v.value = read_with_trailing_rag(this, cvsHeader.length, CvsDefRangeFramePointerRel)
     case .S_DEFRANGE_FRAMEPOINTER_REL_FULL_SCOPE:
-        v.value = readv(this, CvsDefRangeFramePointerRelFullScope)
+        v.value = read_packed(this, CvsDefRangeFramePointerRelFullScope)
     case:
         v.value = nil
     }

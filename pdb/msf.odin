@@ -74,14 +74,14 @@ read_stream_dir :: proc(using this: ^SuperBlock, r: io.Reader) -> (sd: StreamDir
     }
     breader := make_reader_from_indiced_buf(r, transmute([]u32le)mem.Raw_Slice{&iData[0], int(sdBlockCount)}, int(blockSize), numDirectoryBytes)
 
-    sd.numStreams = readv(&breader, u32le)
+    sd.numStreams = read_packed(&breader, u32le)
     //fmt.printf("number of streams %v\n", sd.numStreams)
     sd.streamSizes = make([]u32le, sd.numStreams)
     sd.streamBlocks = make([][]u32le, sd.numStreams)
     sd.r = r
     sd.blockSize = blockSize
     for i in 0..<sd.numStreams {
-        sd.streamSizes[i] = readv(&breader, u32le)
+        sd.streamSizes[i] = read_packed(&breader, u32le)
         if sd.streamSizes[i] == 0xffff_ffff {
             sd.streamSizes[i] = 0 //? clear invalid streamSizes?
         }
@@ -93,7 +93,7 @@ read_stream_dir :: proc(using this: ^SuperBlock, r: io.Reader) -> (sd: StreamDir
         streamBlock := sd.streamBlocks[i]
         //fmt.printf("reading stream#%v indices...\n", i)
         for j in 0..< len(streamBlock) {
-            streamBlock[j] = readv(&breader, u32le)
+            streamBlock[j] = read_packed(&breader, u32le)
         }
     }
     success = true
@@ -216,8 +216,6 @@ read_with_size_and_trailing_name :: #force_inline proc(this: ^BlocksReader, $T: 
     ret.name = read_length_prefixed_name(this)
     return
 }
-
-readv :: proc { read_packed, read_with_trailing_name, read_with_size_and_trailing_name, read_with_trailing_rag, read_cvtBuildInfo, read_cvtUnion, read_cvtfArgList, read_cvtfBclass, read_cvtfVbclass, read_cvtfMember, read_cvtfEnumerate, read_cvtFieldList, read_dbiModInfo, read_dbiFileInfos, read_cvsFunctionList, read_cvsInlineSite, }
 
 read_length_prefixed_name :: proc(this: ^BlocksReader) -> (ret: string) {
     //nameLen := cast(int)readv(this, u8) //? this is a fucking lie?

@@ -17,7 +17,7 @@ ModStreamSignature :: enum u32le {C7 = 1, C11 = 2, C13 = 4,}
 
 parse_mod_stream :: proc(streamDir: ^StreamDirectory, modi: ^SlimDbiMod) -> (ret: SlimModData) {
     modSr := get_stream_reader(streamDir, modi.moduleSymStream)
-    readv(&modSr, ModStreamHeader)
+    read_packed(&modSr, ModStreamHeader)
     ret.modStream = modSr.data[modSr.offset:]
 
     { // symbol substream
@@ -28,7 +28,7 @@ parse_mod_stream :: proc(streamDir: ^StreamDirectory, modi: ^SlimDbiMod) -> (ret
         iStack := make_stack(SlimCvsInlineSite, cast(int)symSubStreamSize / ((size_of(CvsInlineSite)+size_of(CvsRecordKind))*4), context.temp_allocator); defer delete_stack(&iStack)
         for modSr.offset < symSubStreamEnd {
             pSelf := CvsOffset(modSr.offset)
-            cvsHeader  := readv(&modSr, CvsRecordHeader)
+            cvsHeader  := read_packed(&modSr, CvsRecordHeader)
             blockEnd := modSr.offset + uint(cvsHeader.length) - size_of(CvsRecordKind)
             defer modSr.offset = blockEnd
             #partial switch cvsHeader.kind {
@@ -38,9 +38,9 @@ parse_mod_stream :: proc(streamDir: ^StreamDirectory, modi: ^SlimDbiMod) -> (ret
             case .S_LPROC32_DPC_ID:fallthrough
             case .S_GPROC32:fallthrough
             case .S_GPROC32_ID:
-                push(&pStack, SlimCvsProc{readv(&modSr, CvsProc32), pSelf})
+                push(&pStack, SlimCvsProc{read_with_trailing_name(&modSr, CvsProc32), pSelf})
             case .S_INLINESITE:
-                push(&iStack, SlimCvsInlineSite{readv(&modSr, blockEnd, CvsInlineSite), pSelf})
+                push(&iStack, SlimCvsInlineSite{read_cvsInlineSite(&modSr, blockEnd, CvsInlineSite), pSelf})
             }
         }
         if pStack.count > 0 {
@@ -69,7 +69,7 @@ parse_mod_stream :: proc(streamDir: ^StreamDirectory, modi: ^SlimDbiMod) -> (ret
         inlineSrcCount := 0
         // first pass
         for modSr.offset < c13StreamEnd {
-            ssh := readv(&modSr, CvDbgSubsectionHeader)
+            ssh := read_packed(&modSr, CvDbgSubsectionHeader)
             endOffset := modSr.offset + uint(ssh.length)
             //log.debugf("[%v:%v] %v", modSr.offset, endOffset, ssh)
             defer modSr.offset = endOffset
@@ -77,7 +77,7 @@ parse_mod_stream :: proc(streamDir: ^StreamDirectory, modi: ^SlimDbiMod) -> (ret
             case .FileChecksums: fileChecksumOffset = modSr.offset
             case .Lines: lineBlockCount+=1
             case .InlineeLines:
-                islHdr := readv(&modSr, CvDbgssInlineeLinesHeader)
+                islHdr := read_packed(&modSr, CvDbgssInlineeLinesHeader)
                 islSize := uint(size_of(CvDbgInlineeSrcLine))
                 if islHdr.signature == .ex {
                     islSize = uint(size_of(CvDbgInlineeSrcLineEx))
@@ -92,7 +92,7 @@ parse_mod_stream :: proc(streamDir: ^StreamDirectory, modi: ^SlimDbiMod) -> (ret
         lineBlockCount = 0
         inlineSrcCount = 0
         for modSr.offset < c13StreamEnd {
-            ssh := readv(&modSr, CvDbgSubsectionHeader)
+            ssh := read_packed(&modSr, CvDbgSubsectionHeader)
             endOffset := modSr.offset + uint(ssh.length)
             //log.debugf("[%v:%v] %v", modSr.offset, endOffset, ssh)
             defer modSr.offset = endOffset
@@ -100,15 +100,15 @@ parse_mod_stream :: proc(streamDir: ^StreamDirectory, modi: ^SlimDbiMod) -> (ret
             case .Lines: 
                 cBlock := &ret.blocks[lineBlockCount]
                 lineBlockCount+=1
-                ssLines := readv(&modSr, CvDbgssLinesHeader)
-                lineBlock := readv(&modSr, CvDbgLinesFileBlockHeader)
+                ssLines := read_packed(&modSr, CvDbgssLinesHeader)
+                lineBlock := read_packed(&modSr, CvDbgLinesFileBlockHeader)
                 cBlock^ = SlimModLineBlock{
                     _secOffset = PESectionOffset{offset = ssLines.offset, secIdx = ssLines.seg,},
                     nameOffset = lineBlock.offFile, // unresolved for now
                     lines = make([]SlimModLinePos, lineBlock.nLines),
                 }
                 for li in 0..<lineBlock.nLines {
-                    line := readv(&modSr, CvDbgLinePacked)
+                    line := read_packed(&modSr, CvDbgLinePacked)
                     lns, lne, _ := unpack_lineFlag(line.flags)
                     cBlock.lines[li].offset = line.offset
                     cBlock.lines[li].lineStart = cast(u32le)lns
@@ -119,19 +119,19 @@ parse_mod_stream :: proc(streamDir: ^StreamDirectory, modi: ^SlimDbiMod) -> (ret
                 }
                 if ssLines.flags == .hasColumns {
                     for li in 0..<lineBlock.nLines {
-                        column := readv(&modSr, CvDbgColumn)
+                        column := read_packed(&modSr, CvDbgColumn)
                         cBlock.lines[li].colStart = u32le(column.start)
                     }
                 }
             case .InlineeLines:
-                islHdr := readv(&modSr, CvDbgssInlineeLinesHeader)
+                islHdr := read_packed(&modSr, CvDbgssInlineeLinesHeader)
                 islSize := uint(size_of(CvDbgInlineeSrcLine))
                 if islHdr.signature == .ex {
                     islSize = uint(size_of(CvDbgInlineeSrcLineEx))
                 }
                 for modSr.offset < endOffset {
                     itemEndOffset := modSr.offset + islSize
-                    isl := readv(&modSr, CvDbgInlineeSrcLine)
+                    isl := read_packed(&modSr, CvDbgInlineeSrcLine)
                     //log.debugf("%v", isl)
                     ret.inlineSrcs[inlineSrcCount] = SlimModInlineSrc{isl.inlinee, isl. fileId, isl.srcLineNum, }
                     inlineSrcCount+=1
@@ -142,13 +142,13 @@ parse_mod_stream :: proc(streamDir: ^StreamDirectory, modi: ^SlimDbiMod) -> (ret
         if fco, ok := fileChecksumOffset.?; ok {
             for i in 0..<len(ret.blocks) {
                 modSr.offset = fco + uint(ret.blocks[i].nameOffset)
-                checksumHdr := readv(&modSr, CvDbgFileChecksumHeader)
+                checksumHdr := read_packed(&modSr, CvDbgFileChecksumHeader)
                 ret.blocks[i].nameOffset = NamesStream_StartOffset + checksumHdr.nameOffset
                 //log.debug(ret.blocks[i].nameOffset)
             }
             for i in 0..<len(ret.inlineSrcs) {
                 modSr.offset = fco + uint(ret.inlineSrcs[i].nameOffset)
-                checksumHdr := readv(&modSr, CvDbgFileChecksumHeader)
+                checksumHdr := read_packed(&modSr, CvDbgFileChecksumHeader)
                 ret.inlineSrcs[i].nameOffset = NamesStream_StartOffset + checksumHdr.nameOffset
             }
         } else {

@@ -77,7 +77,7 @@ DbiModInfo_Flags :: enum u16le {
     // TODO: TypeServerIndex stuff in high8
 }
 read_dbiModInfo :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where intrinsics.type_is_subtype_of(T, DbiModInfo) {
-    ret._base = readv(this, type_of(ret._base))
+    ret._base = read_packed(this, type_of(ret._base))
     ret.moduleName = read_length_prefixed_name(this)
     ret.objFileName = read_length_prefixed_name(this)
     // align to 4-byte boundary
@@ -142,14 +142,14 @@ DbiFileInfos :: struct {
     // namesBuffer     : []string,
 }
 read_dbiFileInfos :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where intrinsics.type_is_subtype_of(T, DbiFileInfos) {
-    moduleCount := readv(this, u16le)
-    readv(this, u16le) // ignored invalid src count
+    moduleCount := read_packed(this, u16le)
+    read_packed(this, u16le) // ignored invalid src count
     //log.debugf("Module count: %v", moduleCount)
     this.offset += size_of(u16le) * uint(moduleCount) // skip unused mod indices
     ret.modFileCounts = make([]u16le, cast(int)moduleCount)
     srcFileSum :uint=0
     for i in 0..<len(ret.modFileCounts) {
-        ret.modFileCounts[i] = readv(this, u16le)
+        ret.modFileCounts[i] = read_packed(this, u16le)
         srcFileSum += uint(ret.modFileCounts[i])
     }
     //log.debugf("Src File count: %v", srcFileSum)
@@ -160,7 +160,7 @@ read_dbiFileInfos :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where int
     for i in 0..<srcFileSum {
         baseOffset := this.offset
         defer this.offset = baseOffset + size_of(u32le)
-        nameOffset := readv(this, u32le)
+        nameOffset := read_packed(this, u32le)
         existingName, nameExist := nameMap[nameOffset]
         if nameExist {
             ret.srcFileNames[i] = existingName
@@ -260,7 +260,7 @@ SlimDbiSecInfo :: struct {
 parse_dbi_stream :: proc(streamDir: ^StreamDirectory) -> (ret : SlimDbiData) {
     dbiSr := get_stream_reader(streamDir, DbiStream_Index)
     this := &dbiSr
-    header := readv(this, DbiStreamHeader)
+    header := read_packed(this, DbiStreamHeader)
     if header.versionSignature != -1 {
         log.warnf("unrecognized dbiVersionSignature: %v", header.versionSignature)
     }
@@ -276,7 +276,7 @@ parse_dbi_stream :: proc(streamDir: ^StreamDirectory) -> (ret : SlimDbiData) {
         substreamEnd := uint(header.modInfoSize) + this.offset
         defer assert(this.offset == substreamEnd)
         for this.offset < substreamEnd {
-            modi := readv(this, DbiModInfo)
+            modi := read_dbiModInfo(this, DbiModInfo)
             push(&stack, SlimDbiMod{modi.moduleName, modi.objFileName, modi.symByteSize, modi.c11ByteSize, modi.c13ByteSize, PESectionOffset{offset = modi.sectionContribution.offset, secIdx = modi.sectionContribution.section,}, modi.moduleSymStream})
         }
         if stack.count > 0 {
@@ -286,7 +286,7 @@ parse_dbi_stream :: proc(streamDir: ^StreamDirectory) -> (ret : SlimDbiData) {
     { // section contribution substream
         substreamEnd := uint(header.secContributionSize) + this.offset
         defer assert(this.offset == substreamEnd)
-        secContrSubstreamVersion := readv(this, DbiSecContrVersion)
+        secContrSubstreamVersion := read_packed(this, DbiSecContrVersion)
         //log.debug(secContrSubstreamVersion)
         secContrEntrySize := size_of(DbiSectionContribution)
         switch secContrSubstreamVersion {
@@ -300,7 +300,7 @@ parse_dbi_stream :: proc(streamDir: ^StreamDirectory) -> (ret : SlimDbiData) {
         {
             baseOffset := this.offset
             defer this.offset = baseOffset + cast(uint)secContrEntrySize
-            secContr := readv(this, DbiSectionContribution)
+            secContr := read_packed(this, DbiSectionContribution)
             lastItem = SlimDbiSecContr{
                 PESectionOffset{secContr.offset, secContr.section,}, secContr.moduleIndex,
             }
@@ -310,7 +310,7 @@ parse_dbi_stream :: proc(streamDir: ^StreamDirectory) -> (ret : SlimDbiData) {
         for this.offset < substreamEnd {
             baseOffset := this.offset
             defer this.offset = baseOffset + cast(uint)secContrEntrySize
-            secContr := readv(this, DbiSectionContribution)
+            secContr := read_packed(this, DbiSectionContribution)
             if secContr.size == 0 do continue
             //log.debug(secContr)
             assert(secContr.section > lastItem.secIdx || secContr.offset > lastItem.offset)
@@ -333,13 +333,13 @@ parse_dbi_stream :: proc(streamDir: ^StreamDirectory) -> (ret : SlimDbiData) {
     this.offset += uint(header.srcInfoSize)
     this.offset += uint(header.typeServerMapSize)
     this.offset += uint(header.ecSubstreamSize)
-    optDbgHeaders := readv(this, DbiOptDbgHeaders)
+    optDbgHeaders := read_packed(this, DbiOptDbgHeaders)
     if stream_idx_valid(optDbgHeaders.sectionHeader) {
         sectionRdr := get_stream_reader(streamDir, optDbgHeaders.sectionHeader)
         sectionLen := sectionRdr.size / size_of(PESectionHeader)
         ret.sections = make([]SlimDbiSecInfo, sectionLen)
         for i in 0..<sectionLen {
-            secHdr := readv(&sectionRdr, PESectionHeader)
+            secHdr := read_packed(&sectionRdr, PESectionHeader)
             ret.sections[i] = SlimDbiSecInfo{secHdr.name, secHdr.vSize, secHdr.vAddr, }
         }
         // TODO: omaps and stuff

@@ -63,7 +63,7 @@ seek_for_tpi :: proc(using this: TpiIndexOffsetBuffer, ti : TypeIndex, tpiStream
     endOffset := tpiStream.size
     if lo+1 < len(buf) do endOffset = cast(uint)buf[lo+1].offset
     for ;tpiStream.offset < endOffset && tIdx != ti; tIdx+=1 {
-        cvtHeader := readv(tpiStream, CvtRecordHeader)
+        cvtHeader := read_packed(tpiStream, CvtRecordHeader)
         tpiStream.offset += cast(uint)cvtHeader.length - size_of(CvtRecordKind)
     }
     //log.debugf("Block offset: %v", tpiStream.offset)
@@ -71,7 +71,7 @@ seek_for_tpi :: proc(using this: TpiIndexOffsetBuffer, ti : TypeIndex, tpiStream
 }
 
 parse_tpi_stream :: proc(this: ^BlocksReader, dir: ^StreamDirectory) -> (header: TpiStreamHeader, tiob: TpiIndexOffsetBuffer) {
-    header = readv(this, TpiStreamHeader)
+    header = read_packed(this, TpiStreamHeader)
     assert(header.headerSize == size_of(TpiStreamHeader), "Incorrect header size, mulfunctional stream")
     if header.version != .V80 {
         log.warnf("unrecoginized tpiVersion: %v", header.version)
@@ -83,7 +83,7 @@ parse_tpi_stream :: proc(this: ^BlocksReader, dir: ^StreamDirectory) -> (header:
         tiob.buf = make([]TpiIndexOffsetPair, iobLen)
         hashStream.offset = uint(header.indexOffsetBufferOffset) //?
         for i in 0..<iobLen {
-            tiob.buf[i] = readv(&hashStream, TpiIndexOffsetPair)
+            tiob.buf[i] = read_packed(&hashStream, TpiIndexOffsetPair)
             tiob.buf[i].offset += u32le(this.offset) // apply header offset here as well.
         }
     } else {
