@@ -298,7 +298,7 @@ parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool, srcCodeLo
             }
             if pdbErr == 0 {
                 mi.pdbHandle = pdbFile
-                pdbr := cast(io.Reader)os.stream_from_handle(pdbFile)
+                pdbr := io.to_reader(os.stream_from_handle(pdbFile))
                 if streamDir, sdOk := find_stream_dir(pdbr); sdOk {
                     mi.streamDir = streamDir
                     pdbSr := get_stream_reader(&mi.streamDir, PdbStream_Index)
