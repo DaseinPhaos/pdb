@@ -422,7 +422,6 @@ dump_stack_trace_on_exception :: proc "stdcall" (ExceptionInfo: ^windows.EXCEPTI
 }
 
 print_u64_x :: proc "contextless" (x: u64) #no_bounds_check {
-    using runtime
     digits := "0123456789abcdefghijklmnopqrstuvwxyz"
     a: [129]byte
 	i := len(a)
@@ -434,25 +433,24 @@ print_u64_x :: proc "contextless" (x: u64) #no_bounds_check {
 	}
 	i -= 1; a[i] = digits[u % b]
 
-	os_write(a[i:])
+	runtime.os_write(a[i:])
 }
 
 print_source_code_location :: proc (using scl: runtime.Source_Code_Location) {
-    using runtime
-    print_string(file_path)
+    runtime.print_string(file_path)
     when ODIN_ERROR_POS_STYLE == .Unix {
-        print_byte(':')
-		print_u64(u64(line))
-		print_byte(':')
-		print_u64(u64(column))
-		print_byte(':')
+        runtime.print_byte(':')
+		runtime.print_u64(u64(line))
+		runtime.print_byte(':')
+		runtime.print_u64(u64(column))
+		runtime.print_byte(':')
     } else {
-        print_byte('(')
-		print_u64(u64(line))
-		print_byte(':')
-		print_u64(u64(column))
-		print_byte(')')
+        runtime.print_byte('(')
+		runtime.print_u64(u64(line))
+		runtime.print_byte(':')
+		runtime.print_u64(u64(column))
+		runtime.print_byte(')')
     }
-    print_string(procedure)
-    print_string("()\n")
+    runtime.print_string(procedure)
+    runtime.print_string("()\n")
 }
